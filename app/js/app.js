@@ -3,7 +3,7 @@ const SESSION_KEY = "xlx_ops_session_v1";
 const SERVER_MODE = location.protocol.startsWith("http");
 const PUBLIC_PRODUCTION = true;
 
-const today = "2026-07-10";
+const today = new Date().toISOString().slice(0, 10);
 
 const roles = {
   admin: {
@@ -940,7 +940,7 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-check-order]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认检查库存", "系统将根据当前可用库存决定是否可以出库或需要采购审批。", () => checkSalesOrderInventory(btn.dataset.checkOrder))));
   document.querySelectorAll("[data-create-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认生成出库单", "确认后将从该销售订单带入客户、产品和数量，生成待出库单。", () => createDeliveryFromSalesOrder(btn.dataset.createDelivery))));
   document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认出库", "确认后将正式扣减库存，操作会写入库存流水。", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound))));
-  document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认生成培训验收", "确认后将根据出库单生成培训验收单。", () => createTrainingFromDelivery(btn.dataset.createTraining))));
+  document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => openTrainingFromDelivery(btn.dataset.createTraining)));
   document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认采购审批并下单", "确认后采购单将进入已下单，销售订单将进入待采购到货。", () => approvePurchase(btn.dataset.approvePurchase))));
   document.querySelector("[data-export]")?.addEventListener("click", () => exportCsv(state.route));
   const search = document.querySelector("[data-search]");
@@ -1339,7 +1339,7 @@ function bindModal() {
   bindSalesOrderAmountCalculation();
   document.getElementById("recordForm").addEventListener("submit", (event) => {
     event.preventDefault();
-    const { moduleId, id, record, sourceLeadId } = state.editing;
+    const { moduleId, id, record, sourceLeadId, sourceDeliveryId } = state.editing;
     const formData = new FormData(event.currentTarget);
     const next = { ...record };
     moduleFields[moduleId].forEach(([key, , type]) => {
@@ -1374,8 +1374,18 @@ function bindModal() {
         saveData();
       }
     }
+    if (sourceDeliveryId && moduleId === "trainings") {
+      const delivery = db.deliveries.find((item) => item.id === sourceDeliveryId);
+      if (delivery) {
+        delivery.trainingId = next.id;
+        delivery.training = "需要";
+        delivery.updatedAt = nowIso();
+        logAction("link", "deliveries", delivery.id, `已创建培训验收单 ${next.code}`);
+        saveData();
+      }
+    }
     closeModal();
-    toast(sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已关闭` : (id ? "记录已更新" : "记录已新增"));
+    toast(sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已关闭` : (sourceDeliveryId ? `培训验收单 ${next.code} 创建成功` : (id ? "记录已更新" : "记录已新增")));
     render();
   });
 }
@@ -1726,7 +1736,7 @@ function openSalesOrderFromLead(leadId) {
     unitPrice: 0,
     totalAmount: 0,
     owner: lead.owner || state.currentUser.id,
-    deliveryDate: lead.dueDate || today,
+    deliveryDate: today,
     status: "草稿",
     remark: `由线索 ${lead.code} 一键生成`,
   });
@@ -1894,7 +1904,7 @@ function confirmDeliveryOutbound(deliveryId) {
   render();
 }
 
-function createTrainingFromDelivery(deliveryId) {
+function openTrainingFromDelivery(deliveryId) {
   const delivery = db.deliveries.find((item) => item.id === deliveryId);
   if (!delivery) return;
   const existing = db.trainings.find((training) => training.deliveryId === delivery.id);
@@ -1917,14 +1927,15 @@ function createTrainingFromDelivery(deliveryId) {
     acceptanceResult: "待培训",
     remark: `由出库单 ${delivery.code} 自动生成`,
   });
-  db.trainings.unshift(training);
-  delivery.trainingId = training.id;
-  delivery.training = "需要";
-  delivery.updatedAt = nowIso();
-  logAction("create", "trainings", training.id, `由出库单 ${delivery.code} 生成培训验收单`);
-  saveData();
-  toast(`已生成培训验收单 ${training.code}`);
-  render();
+  state.editing = {
+    moduleId: "trainings",
+    id: null,
+    record: training,
+    sourceDeliveryId: delivery.id,
+    title: "确认创建培训验收单",
+  };
+  document.body.insertAdjacentHTML("beforeend", renderModal("trainings", training, false));
+  bindModal();
 }
 
 function adjustStock(itemId, action) {
