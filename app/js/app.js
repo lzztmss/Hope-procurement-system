@@ -1145,7 +1145,7 @@ function renderCards(moduleId, records) {
 
 function renderActions(moduleId, record) {
   const buttons = [];
-  if (moduleId === "leads" && can("salesOrders", "create") && (record.stage === "已成交" || record.status === "已成交")) {
+  if (moduleId === "leads" && can("salesOrders", "create") && record.status !== "已关闭" && (record.stage === "已成交" || record.status === "已成交")) {
     buttons.push(`<button class="primary-btn" data-create-order="${record.id}">生成销售订单</button>`);
   }
   if (moduleId === "salesOrders") {
