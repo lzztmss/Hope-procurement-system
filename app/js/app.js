@@ -381,6 +381,19 @@ function normalizeData(data) {
   });
   normalized.purchases.forEach((purchase) => {
     if (!purchase.productId) purchase.productId = findProductByLabel(normalized.products, purchase.product, purchase.model)?.id || "";
+    // 旧版“待采购确认”不够明确，统一迁移为“已下单”。
+    if (purchase.status === "待采购确认") purchase.status = "已下单";
+  });
+  normalized.purchases.forEach((purchase) => {
+    if (!purchase.sourceSalesOrderId || purchase.status === "已取消") return;
+    const order = normalized.salesOrders.find((item) => item.id === purchase.sourceSalesOrderId);
+    if (!order || ["已出库", "已完成", "已取消"].includes(order.status)) return;
+    if (["待采购审批", "待技术确认"].includes(purchase.status)) order.status = "待采购审批";
+    if (["已下单", "在途"].includes(purchase.status)) order.status = "待采购到货";
+    if (purchase.status === "已到货") {
+      const item = normalized.inventory.find((inventory) => inventory.productId === purchase.productId);
+      order.status = item && Number(item.stock || 0) - Number(item.locked || 0) >= Number(order.quantity || 0) ? "待出库" : "待采购到货";
+    }
   });
   if (!normalized.meta) normalized.meta = { version: 1, createdAt: nowIso() };
   normalized.meta.version = Math.max(Number(normalized.meta.version || 1), 2);
@@ -928,7 +941,7 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-create-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认生成出库单", "确认后将从该销售订单带入客户、产品和数量，生成待出库单。", () => createDeliveryFromSalesOrder(btn.dataset.createDelivery))));
   document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认出库", "确认后将正式扣减库存，操作会写入库存流水。", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound))));
   document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认生成培训验收", "确认后将根据出库单生成培训验收单。", () => createTrainingFromDelivery(btn.dataset.createTraining))));
-  document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认采购审批", "审批通过后，采购申请将进入待采购确认状态。", () => approvePurchase(btn.dataset.approvePurchase))));
+  document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认采购审批并下单", "确认后采购单将进入已下单，销售订单将进入待采购到货。", () => approvePurchase(btn.dataset.approvePurchase))));
   document.querySelector("[data-export]")?.addEventListener("click", () => exportCsv(state.route));
   const search = document.querySelector("[data-search]");
   if (search) {
@@ -1155,7 +1168,7 @@ function renderActions(moduleId, record) {
     if (record.status === "待销售审批" && canApproveSalesOrder()) {
       buttons.push(`<button class="primary-btn" data-approve-order="${record.id}">审批通过</button>`);
     }
-    if (["待库存确认", "待采购到货"].includes(record.status) && can("salesOrders", "edit")) {
+    if (record.status === "待库存确认" && can("salesOrders", "edit")) {
       buttons.push(`<button class="primary-btn" data-check-order="${record.id}">检查库存</button>`);
     }
     if (record.status === "待出库" && can("deliveries", "create")) {
@@ -1167,10 +1180,10 @@ function renderActions(moduleId, record) {
     buttons.push(`<button class="ghost-btn" data-outbound="${record.id}">出库</button>`);
   }
   if (moduleId === "purchases" && canApprovePurchase() && record.status === "待采购审批") {
-    buttons.push(`<button class="primary-btn" data-approve-purchase="${record.id}">审批通过</button>`);
+    buttons.push(`<button class="primary-btn" data-approve-purchase="${record.id}">审批通过并下单</button>`);
   }
-  if (moduleId === "purchases" && can("purchases", "edit") && record.status !== "已到货" && record.status !== "待采购审批") {
-    buttons.push(`<button class="ghost-btn" data-arrive="${record.id}">到货入库</button>`);
+  if (moduleId === "purchases" && can("purchases", "edit") && ["已下单", "在途"].includes(record.status)) {
+    buttons.push(`<button class="ghost-btn" data-arrive="${record.id}">确认到货入库</button>`);
   }
   if (moduleId === "deliveries" && can("deliveries", "edit") && record.status === "待出库") {
     buttons.push(`<button class="primary-btn" data-confirm-outbound="${record.id}">确认出库</button>`);
@@ -1254,7 +1267,7 @@ function renderModal(moduleId, record, isEdit) {
       </div>
       <div class="modal-body">
         <div class="form-grid">
-          ${fields.map((field) => renderField(field, record)).join("")}
+          ${fields.map((field) => renderField(moduleId, field, record)).join("")}
         </div>
       </div>
       <div class="modal-footer">
@@ -1265,14 +1278,36 @@ function renderModal(moduleId, record, isEdit) {
   </div>`;
 }
 
-function renderField([key, label, type, required, options], record) {
+function allowedWorkflowStatusOptions(moduleId, currentStatus, options) {
+  if (moduleId === "salesOrders") {
+    const flow = ["草稿", "待销售审批", "待库存确认", "待采购审批", "待采购到货", "待出库", "已出库", "已完成"];
+    const index = flow.indexOf(currentStatus);
+    return index >= 0 ? [...flow.slice(0, index + 1), "已取消"] : options;
+  }
+  if (moduleId === "purchases") {
+    const flow = ["待采购审批", "已下单", "在途", "已到货"];
+    const index = flow.indexOf(currentStatus);
+    if (index >= 0) return [...flow.slice(0, index + 1), "已取消"];
+    if (currentStatus === "待技术确认") return ["待技术确认", "已取消"];
+    if (currentStatus === "异常") return ["异常", "已取消"];
+  }
+  if (moduleId === "deliveries") {
+    const flow = ["待出库", "已出库", "配送中", "已签收", "已验收"];
+    const index = flow.indexOf(currentStatus);
+    if (index >= 0) return [...flow.slice(0, index + 1), "异常", "已取消"];
+  }
+  return options;
+}
+
+function renderField(moduleId, [key, label, type, required, options], record) {
   const value = record[key] ?? "";
   const requiredAttr = required ? "required" : "";
   const common = `name="${key}" ${requiredAttr}`;
   const span = type === "textarea" ? "span-2" : "";
   let input = "";
   if (type === "select") {
-    input = `<select ${common}>${options.map((op) => `<option ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
+    const allowedOptions = key === "status" ? allowedWorkflowStatusOptions(moduleId, value, options) : options;
+    input = `<select ${common}>${allowedOptions.map((op) => `<option ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
   } else if (type === "product") {
     input = `<select ${common}>${productOptions(value).map((op) => `<option value="${escapeHtml(op)}" ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
   } else if (type === "lead") {
@@ -1784,7 +1819,7 @@ function checkSalesOrderInventory(orderId) {
 function approvePurchase(purchaseId) {
   const purchase = db.purchases.find((item) => item.id === purchaseId);
   if (!purchase || !canApprovePurchase()) return;
-  purchase.status = "待采购确认";
+  purchase.status = "已下单";
   purchase.approvedBy = state.currentUser.id;
   purchase.approvedAt = nowIso();
   purchase.updatedAt = nowIso();
@@ -1795,7 +1830,7 @@ function approvePurchase(purchaseId) {
   }
   logAction("approve", "purchases", purchase.id, "采购审批通过");
   saveData();
-  toast("已审批通过，采购单进入待采购确认");
+  toast("已审批通过并下单，销售订单进入待采购到货");
   render();
 }
 
