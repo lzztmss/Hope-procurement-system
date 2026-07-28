@@ -733,6 +733,10 @@ function dashboardStats() {
 function fieldValue(moduleId, record, key) {
   if (moduleId === "inventory" && key === "available") return availableStock(record);
   if (moduleId === "inventory" && key === "statusText") return inventoryStatus(record);
+  if (moduleId === "salesOrders" && key === "totalAmount") {
+    if (record.totalAmount !== "" && record.totalAmount !== null && record.totalAmount !== undefined) return record.totalAmount;
+    return Number(record.quantity || 0) * Number(record.unitPrice || 0);
+  }
   if (["owner", "requester", "publisher", "techOwner"].includes(key)) return userName(record[key]);
   if (key === "supplierId") return supplierName(record[key]);
   if (key === "inventoryId") return inventoryName(record[key]);
@@ -1141,9 +1145,6 @@ function renderCards(moduleId, records) {
 
 function renderActions(moduleId, record) {
   const buttons = [];
-  if (moduleId !== "inventory" && can(moduleId, "view")) {
-    buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-view="${record.id}">查看</button>`);
-  }
   if (moduleId === "leads" && can("salesOrders", "create") && (record.stage === "已成交" || record.status === "已成交")) {
     buttons.push(`<button class="primary-btn" data-create-order="${record.id}">生成销售订单</button>`);
   }
@@ -1176,6 +1177,10 @@ function renderActions(moduleId, record) {
   }
   if (moduleId === "deliveries" && can("trainings", "create") && ["已出库", "配送中", "已签收", "已验收"].includes(record.status)) {
     buttons.push(`<button class="ghost-btn" data-create-training="${record.id}">生成培训验收</button>`);
+  }
+  // 业务处理按钮在前，查看固定在编辑之前；库存台账不需要展开查看。
+  if (moduleId !== "inventory" && can(moduleId, "view")) {
+    buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-view="${record.id}">查看</button>`);
   }
   if (can(moduleId, "edit")) buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-edit="${record.id}">编辑</button>`);
   if (can(moduleId, "delete")) buttons.push(`<button class="danger-btn" data-module="${moduleId}" data-delete="${record.id}">删除</button>`);
@@ -1296,6 +1301,7 @@ function renderField([key, label, type, required, options], record) {
 
 function bindModal() {
   document.querySelectorAll("[data-close-modal]").forEach((btn) => btn.addEventListener("click", closeModal));
+  bindSalesOrderAmountCalculation();
   document.getElementById("recordForm").addEventListener("submit", (event) => {
     event.preventDefault();
     const { moduleId, id, record, sourceLeadId } = state.editing;
@@ -1314,7 +1320,7 @@ function bindModal() {
     if (["salesOrders", "purchases", "trainings"].includes(moduleId)) {
       next.productId = findProductByLabel(db.products, next.product, next.model)?.id || "";
     }
-    if (moduleId === "salesOrders") next.totalAmount = Number(next.quantity || 0) * Number(next.unitPrice || 0);
+    if (moduleId === "salesOrders") next.totalAmountManual = Boolean(record.totalAmountManual);
     next.updatedAt = nowIso();
     const result = saveRecord(moduleId, id, next);
     if (!result.ok) {
@@ -1336,6 +1342,25 @@ function bindModal() {
     closeModal();
     toast(sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已关闭` : (id ? "记录已更新" : "记录已新增"));
     render();
+  });
+}
+
+function bindSalesOrderAmountCalculation() {
+  if (state.editing?.moduleId !== "salesOrders") return;
+  const form = document.getElementById("recordForm");
+  const quantity = form?.elements.namedItem("quantity");
+  const unitPrice = form?.elements.namedItem("unitPrice");
+  const totalAmount = form?.elements.namedItem("totalAmount");
+  if (!quantity || !unitPrice || !totalAmount) return;
+  const calculate = () => Number(quantity.value || 0) * Number(unitPrice.value || 0);
+  const updateAutomaticAmount = () => {
+    if (!state.editing.record.totalAmountManual) totalAmount.value = String(calculate());
+  };
+  updateAutomaticAmount();
+  quantity.addEventListener("input", updateAutomaticAmount);
+  unitPrice.addEventListener("input", updateAutomaticAmount);
+  totalAmount.addEventListener("input", () => {
+    state.editing.record.totalAmountManual = true;
   });
 }
 
