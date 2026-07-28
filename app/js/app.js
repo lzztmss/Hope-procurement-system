@@ -1362,15 +1362,17 @@ function bindModal() {
       toast(result.message);
       return;
     }
-    if (sourceLeadId && moduleId === "salesOrders") {
-      const lead = db.leads.find((item) => item.id === sourceLeadId);
+    const linkedLeadId = sourceLeadId || (moduleId === "salesOrders" ? next.leadId : "");
+    if (linkedLeadId && moduleId === "salesOrders") {
+      const lead = db.leads.find((item) => item.id === linkedLeadId);
       if (lead) {
+        const isCancelled = next.status === "已取消";
         lead.status = "已关闭";
-        lead.stage = "已成交";
+        lead.stage = isCancelled ? "暂停/丢单" : "已成交";
         lead.closedAt = nowIso();
         lead.salesOrderIds = Array.from(new Set([...(lead.salesOrderIds || []), next.id]));
         lead.updatedAt = nowIso();
-        logAction("close", "leads", lead.id, `已创建销售订单 ${next.code}，线索自动关闭`);
+        logAction(isCancelled ? "cancel" : "close", "leads", lead.id, isCancelled ? `销售订单 ${next.code} 已取消，线索同步为暂停/丢单` : `销售订单 ${next.code} 已保存，线索同步为已成交`);
         saveData();
       }
     }
@@ -1385,7 +1387,7 @@ function bindModal() {
       }
     }
     closeModal();
-    toast(sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已关闭` : (sourceDeliveryId ? `培训验收单 ${next.code} 创建成功` : (id ? "记录已更新" : "记录已新增")));
+    toast(moduleId === "salesOrders" && next.status === "已取消" && linkedLeadId ? `销售订单 ${next.code} 已取消，原线索已同步为暂停/丢单` : (sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已关闭` : (sourceDeliveryId ? `培训验收单 ${next.code} 创建成功` : (id ? "记录已更新" : "记录已新增"))));
     render();
   });
 }
