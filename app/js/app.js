@@ -181,7 +181,7 @@ const moduleFields = {
     ["trackingNo", "快递单号", "text", false],
     ["training", "培训需求", "select", false, ["需要", "不需要", "待确认"]],
     ["trainingAt", "培训时间", "datetime-local", false],
-    ["status", "签收/验收状态", "select", true, ["待出库", "已出库", "配送中", "已签收", "已验收", "异常"]],
+    ["status", "签收/验收状态", "select", true, ["待出库", "已出库", "配送中", "已签收", "已验收", "异常", "已取消"]],
     ["remark", "备注", "textarea", false],
   ],
   trainings: [
@@ -724,7 +724,7 @@ function dashboardStats() {
     leadsActive: db.leads.filter((x) => !["已成交", "已关闭"].includes(x.status)).length,
     purchasePending: db.purchases.filter((x) => !["已到货", "已取消"].includes(x.status)).length,
     inventoryRisk: alerts.filter((x) => x.refModule === "inventory").length,
-    deliveryOpen: db.deliveries.filter((x) => !["已签收", "已验收"].includes(x.status)).length,
+    deliveryOpen: db.deliveries.filter((x) => !["已签收", "已验收", "已取消"].includes(x.status)).length,
     afterOpen: db.aftersales.filter((x) => !["已解决", "已关闭"].includes(x.status)).length,
     alerts,
   };
@@ -1046,8 +1046,8 @@ function projectRows() {
   const names = Array.from(new Set([...db.leads.map((x) => x.customer), ...db.purchases.map((x) => x.project).filter(Boolean), ...db.deliveries.map((x) => x.project), ...db.aftersales.map((x) => x.customer)]));
   return names.slice(0, 8).map((name) => {
     const lead = db.leads.find((x) => x.customer === name);
-    const purchase = db.purchases.find((x) => x.project === name);
-    const delivery = db.deliveries.find((x) => x.project === name);
+    const purchase = db.purchases.find((x) => x.project === name && x.status !== "已取消");
+    const delivery = db.deliveries.find((x) => x.project === name && x.status !== "已取消");
     const afters = db.aftersales.filter((x) => x.customer === name);
     const afterRisk = afters.find((x) => !["已解决", "已关闭"].includes(x.status));
     return {
@@ -1408,6 +1408,85 @@ function closeConfirmAction() {
   state.confirmAction = null;
 }
 
+const salesOrderStages = ["草稿", "待销售审批", "待库存确认", "待采购审批", "待采购到货", "待出库", "已出库", "已完成"];
+const reversiblePurchaseStatuses = ["待采购审批", "待技术确认", "待采购确认", "异常"];
+const placedPurchaseStatuses = ["已下单", "在途", "已到货"];
+const completedDeliveryStatuses = ["已出库", "配送中", "已签收", "已验收"];
+
+function linkedToSalesOrder(collection, salesOrderId) {
+  return (db[collection] || []).filter((record) => record.sourceSalesOrderId === salesOrderId || record.salesOrderId === salesOrderId);
+}
+
+function isSalesOrderRollback(oldStatus, nextStatus) {
+  if (nextStatus === "已取消") return oldStatus !== "已取消";
+  const oldIndex = salesOrderStages.indexOf(oldStatus);
+  const nextIndex = salesOrderStages.indexOf(nextStatus);
+  return oldIndex >= 0 && nextIndex >= 0 && nextIndex < oldIndex;
+}
+
+function validateSalesOrderRollback(order, oldOrder) {
+  if (!isSalesOrderRollback(oldOrder.status, order.status)) return { ok: true };
+  const received = linkedToSalesOrder("purchases", order.id).find((purchase) => purchase.status === "已到货" || purchase.receivedApplied);
+  if (received) return { ok: false, message: `不能退回：关联采购单 ${received.code} 已到货并已影响库存，请走退货/退库流程。` };
+  const placed = linkedToSalesOrder("purchases", order.id).find((purchase) => placedPurchaseStatuses.includes(purchase.status));
+  if (placed) return { ok: false, message: `不能退回：关联采购单 ${placed.code} 已下单或在途，请先由采购人员处理取消。` };
+  const delivered = linkedToSalesOrder("deliveries", order.id).find((delivery) => completedDeliveryStatuses.includes(delivery.status));
+  if (delivered) return { ok: false, message: `不能退回：关联出库单 ${delivered.code} 已出库，请走退库/红冲流程。` };
+  const training = linkedToSalesOrder("trainings", order.id)[0];
+  if (training) return { ok: false, message: `不能退回：已生成培训验收单 ${training.code}，请先按售后或退库流程处理。` };
+  return { ok: true };
+}
+
+function cancelRecord(record, reason) {
+  record.status = "已取消";
+  record.cancelledAt = nowIso();
+  record.cancelledBy = state.currentUser?.id || "";
+  record.cancelledReason = reason;
+  record.updatedAt = nowIso();
+}
+
+function reconcileSalesOrderWorkflow(order, oldOrder) {
+  if (!oldOrder || !isSalesOrderRollback(oldOrder.status, order.status)) return;
+  const reason = `销售订单 ${order.code} 从“${oldOrder.status}”退回到“${order.status}”自动作废`;
+  linkedToSalesOrder("purchases", order.id)
+    .filter((purchase) => reversiblePurchaseStatuses.includes(purchase.status))
+    .forEach((purchase) => {
+      cancelRecord(purchase, reason);
+      logAction("cancel", "purchases", purchase.id, reason);
+    });
+  linkedToSalesOrder("deliveries", order.id)
+    .filter((delivery) => delivery.status === "待出库")
+    .forEach((delivery) => {
+      cancelRecord(delivery, reason);
+      logAction("cancel", "deliveries", delivery.id, reason);
+    });
+  order.deliveryId = "";
+  if (order.status !== "待出库") order.inventoryId = "";
+  logAction("rollback", "salesOrders", order.id, reason);
+}
+
+function reconcilePurchaseWorkflow(purchase, oldPurchase) {
+  if (!oldPurchase || purchase.status !== "已取消" || oldPurchase.status === "已取消" || !purchase.sourceSalesOrderId) return;
+  const order = db.salesOrders.find((item) => item.id === purchase.sourceSalesOrderId);
+  if (!order) return;
+  const stillActive = linkedToSalesOrder("purchases", order.id).some((item) => item.id !== purchase.id && item.status !== "已取消");
+  if (!stillActive && ["待采购审批", "待采购到货"].includes(order.status)) {
+    order.status = "待库存确认";
+    order.updatedAt = nowIso();
+    logAction("rollback", "salesOrders", order.id, `采购单 ${purchase.code} 已取消，订单退回库存确认`);
+  }
+}
+
+function reconcileDeliveryWorkflow(delivery, oldDelivery) {
+  if (!oldDelivery || delivery.status !== "已取消" || oldDelivery.status === "已取消" || !delivery.sourceSalesOrderId) return;
+  const order = db.salesOrders.find((item) => item.id === delivery.sourceSalesOrderId);
+  if (order && order.status === "待出库") {
+    order.deliveryId = "";
+    order.updatedAt = nowIso();
+    logAction("rollback", "salesOrders", order.id, `出库单 ${delivery.code} 已取消，可重新生成出库单`);
+  }
+}
+
 function saveRecord(moduleId, id, record) {
   if (moduleId === "deliveries") {
     const item = db.inventory.find((i) => i.id === record.inventoryId);
@@ -1423,6 +1502,10 @@ function saveRecord(moduleId, id, record) {
   }
   const collection = collectionFor(moduleId);
   const oldRecord = id ? { ...(db[collection].find((r) => r.id === id) || {}) } : null;
+  if (moduleId === "salesOrders" && oldRecord) {
+    const validation = validateSalesOrderRollback(record, oldRecord);
+    if (!validation.ok) return validation;
+  }
   if (moduleId === "inventory" && !id) {
     const product = findProductByLabel(db.products, record.name, record.model);
     const existing = inventoryForProduct(record.name, product?.id || "", record.model);
@@ -1456,6 +1539,9 @@ function saveRecord(moduleId, id, record) {
   if (moduleId === "purchases" && record.status === "已到货") {
     receivePurchase(record);
   }
+  if (moduleId === "salesOrders" && oldRecord) reconcileSalesOrderWorkflow(record, oldRecord);
+  if (moduleId === "purchases" && oldRecord) reconcilePurchaseWorkflow(record, oldRecord);
+  if (moduleId === "deliveries" && oldRecord) reconcileDeliveryWorkflow(record, oldRecord);
   saveData();
   return { ok: true };
 }
@@ -1463,6 +1549,52 @@ function saveRecord(moduleId, id, record) {
 function removeRecord(moduleId, id) {
   if (!confirm("确认删除这条记录？")) return;
   const collection = collectionFor(moduleId);
+  const record = (db[collection] || []).find((item) => item.id === id);
+  if (!record) return;
+  if (moduleId === "salesOrders") {
+    const cancelled = { ...record, status: "已取消", updatedAt: nowIso() };
+    const validation = validateSalesOrderRollback(cancelled, record);
+    if (!validation.ok) {
+      toast(validation.message);
+      return;
+    }
+    const index = db.salesOrders.findIndex((item) => item.id === id);
+    db.salesOrders[index] = cancelled;
+    reconcileSalesOrderWorkflow(cancelled, record);
+    logAction("cancel", "salesOrders", id, "删除操作改为作废，保留业务追溯");
+    saveData();
+    toast("销售订单已作废，未完成的关联单据已同步取消");
+    render();
+    return;
+  }
+  if (moduleId === "purchases" && record.sourceSalesOrderId) {
+    if (!reversiblePurchaseStatuses.includes(record.status)) {
+      toast("该采购单已下单、在途或到货，不能直接删除，请按采购取消或退货流程处理");
+      return;
+    }
+    const oldRecord = { ...record };
+    cancelRecord(record, "删除操作改为作废，保留业务追溯");
+    reconcilePurchaseWorkflow(record, oldRecord);
+    logAction("cancel", "purchases", id, "删除操作改为作废");
+    saveData();
+    toast("采购申请已作废，并同步更新关联销售订单");
+    render();
+    return;
+  }
+  if (moduleId === "deliveries" && record.sourceSalesOrderId) {
+    if (record.status !== "待出库") {
+      toast("该出库单已经影响交付或库存，不能直接删除，请走退库流程");
+      return;
+    }
+    const oldRecord = { ...record };
+    cancelRecord(record, "删除操作改为作废，保留业务追溯");
+    reconcileDeliveryWorkflow(record, oldRecord);
+    logAction("cancel", "deliveries", id, "删除操作改为作废");
+    saveData();
+    toast("出库单已作废，关联销售订单可重新生成出库单");
+    render();
+    return;
+  }
   db[collection] = db[collection].filter((r) => r.id !== id);
   logAction("delete", moduleId, id, "删除记录");
   saveData();
@@ -1605,6 +1737,12 @@ function checkSalesOrderInventory(orderId) {
   if (!order) return;
   const item = inventoryForProduct(order.product, order.productId, order.model);
   if (item && availableStock(item) >= Number(order.quantity || 0)) {
+    linkedToSalesOrder("purchases", order.id)
+      .filter((purchase) => reversiblePurchaseStatuses.includes(purchase.status))
+      .forEach((purchase) => {
+        cancelRecord(purchase, `销售订单 ${order.code} 重新检查库存后已满足，无需采购`);
+        logAction("cancel", "purchases", purchase.id, "库存已满足，自动作废待处理采购申请");
+      });
     order.status = "待出库";
     order.inventoryId = item.id;
     order.updatedAt = nowIso();
@@ -1669,7 +1807,7 @@ function createDeliveryFromSalesOrder(orderId) {
     toast("库存已变化，请重新检查库存");
     return;
   }
-  const existing = db.deliveries.find((delivery) => delivery.sourceSalesOrderId === order.id && delivery.status !== "异常");
+  const existing = db.deliveries.find((delivery) => delivery.sourceSalesOrderId === order.id && !["异常", "已取消"].includes(delivery.status));
   if (existing) {
     toast(`该订单已有出库单 ${existing.code}`);
     return;
