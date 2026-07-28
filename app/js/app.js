@@ -327,6 +327,7 @@ const state = {
   search: "",
   statusFilter: "全部",
   editing: null,
+  confirmAction: null,
 };
 
 function uid(prefix) {
@@ -901,6 +902,7 @@ function bindGlobalActions() {
     render();
   });
   document.querySelectorAll("[data-create]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.create)));
+  document.querySelectorAll("[data-view]").forEach((btn) => btn.addEventListener("click", () => openDetail(btn.dataset.module, btn.dataset.view)));
   document.querySelectorAll("[data-edit]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.module, btn.dataset.edit)));
   document.querySelectorAll("[data-delete]").forEach((btn) => btn.addEventListener("click", () => removeRecord(btn.dataset.module, btn.dataset.delete)));
   document.querySelectorAll("[data-drill]").forEach((btn) => btn.addEventListener("click", () => {
@@ -913,16 +915,16 @@ function bindGlobalActions() {
     state.search = btn.dataset.alertRef;
     render();
   }));
-  document.querySelectorAll("[data-inbound]").forEach((btn) => btn.addEventListener("click", () => adjustStock(btn.dataset.inbound, "入库")));
-  document.querySelectorAll("[data-outbound]").forEach((btn) => btn.addEventListener("click", () => adjustStock(btn.dataset.outbound, "出库")));
-  document.querySelectorAll("[data-create-order]").forEach((btn) => btn.addEventListener("click", () => createSalesOrderFromLead(btn.dataset.createOrder)));
+  document.querySelectorAll("[data-inbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认入库", "请确认要进入库存调整并增加库存。", () => adjustStock(btn.dataset.inbound, "入库"))));
+  document.querySelectorAll("[data-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认手动出库", "请确认要进入库存调整并扣减库存。", () => adjustStock(btn.dataset.outbound, "出库"))));
+  document.querySelectorAll("[data-create-order]").forEach((btn) => btn.addEventListener("click", () => openSalesOrderFromLead(btn.dataset.createOrder)));
   document.querySelectorAll("[data-submit-order]").forEach((btn) => btn.addEventListener("click", () => submitSalesOrderForApproval(btn.dataset.submitOrder)));
   document.querySelectorAll("[data-approve-order]").forEach((btn) => btn.addEventListener("click", () => approveSalesOrder(btn.dataset.approveOrder)));
-  document.querySelectorAll("[data-check-order]").forEach((btn) => btn.addEventListener("click", () => checkSalesOrderInventory(btn.dataset.checkOrder)));
-  document.querySelectorAll("[data-create-delivery]").forEach((btn) => btn.addEventListener("click", () => createDeliveryFromSalesOrder(btn.dataset.createDelivery)));
-  document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound)));
-  document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => createTrainingFromDelivery(btn.dataset.createTraining)));
-  document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => approvePurchase(btn.dataset.approvePurchase)));
+  document.querySelectorAll("[data-check-order]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认检查库存", "系统将根据当前可用库存决定是否可以出库或需要采购审批。", () => checkSalesOrderInventory(btn.dataset.checkOrder))));
+  document.querySelectorAll("[data-create-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认生成出库单", "确认后将从该销售订单带入客户、产品和数量，生成待出库单。", () => createDeliveryFromSalesOrder(btn.dataset.createDelivery))));
+  document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认出库", "确认后将正式扣减库存，操作会写入库存流水。", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound))));
+  document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认生成培训验收", "确认后将根据出库单生成培训验收单。", () => createTrainingFromDelivery(btn.dataset.createTraining))));
+  document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认采购审批", "审批通过后，采购申请将进入待采购确认状态。", () => approvePurchase(btn.dataset.approvePurchase))));
   document.querySelector("[data-export]")?.addEventListener("click", () => exportCsv(state.route));
   const search = document.querySelector("[data-search]");
   if (search) {
@@ -1139,6 +1141,9 @@ function renderCards(moduleId, records) {
 
 function renderActions(moduleId, record) {
   const buttons = [];
+  if (moduleId !== "inventory" && can(moduleId, "view")) {
+    buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-view="${record.id}">查看</button>`);
+  }
   if (moduleId === "leads" && can("salesOrders", "create") && (record.stage === "已成交" || record.status === "已成交")) {
     buttons.push(`<button class="primary-btn" data-create-order="${record.id}">生成销售订单</button>`);
   }
@@ -1235,10 +1240,11 @@ function openForm(moduleId, id = null) {
 function renderModal(moduleId, record, isEdit) {
   const module = modules.find((m) => m.id === moduleId);
   const fields = moduleFields[moduleId] || [];
+  const title = state.editing?.title || `${isEdit ? "编辑" : "新增"}${module.name}`;
   return `<div class="modal-backdrop">
     <form class="modal" id="recordForm">
       <div class="modal-header">
-        <div><h2 class="panel-title">${isEdit ? "编辑" : "新增"}${module.name}</h2><p class="compact-note">关键字段会进入看板、预警和权限数据范围。</p></div>
+        <div><h2 class="panel-title">${title}</h2><p class="compact-note">关键字段会进入看板、预警和权限数据范围。</p></div>
         <button class="icon-btn" type="button" data-close-modal>×</button>
       </div>
       <div class="modal-body">
@@ -1292,7 +1298,7 @@ function bindModal() {
   document.querySelectorAll("[data-close-modal]").forEach((btn) => btn.addEventListener("click", closeModal));
   document.getElementById("recordForm").addEventListener("submit", (event) => {
     event.preventDefault();
-    const { moduleId, id, record } = state.editing;
+    const { moduleId, id, record, sourceLeadId } = state.editing;
     const formData = new FormData(event.currentTarget);
     const next = { ...record };
     moduleFields[moduleId].forEach(([key, , type]) => {
@@ -1315,8 +1321,20 @@ function bindModal() {
       toast(result.message);
       return;
     }
+    if (sourceLeadId && moduleId === "salesOrders") {
+      const lead = db.leads.find((item) => item.id === sourceLeadId);
+      if (lead) {
+        lead.status = "已关闭";
+        lead.stage = "已成交";
+        lead.closedAt = nowIso();
+        lead.salesOrderIds = Array.from(new Set([...(lead.salesOrderIds || []), next.id]));
+        lead.updatedAt = nowIso();
+        logAction("close", "leads", lead.id, `已创建销售订单 ${next.code}，线索自动关闭`);
+        saveData();
+      }
+    }
     closeModal();
-    toast(id ? "记录已更新" : "记录已新增");
+    toast(sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已关闭` : (id ? "记录已更新" : "记录已新增"));
     render();
   });
 }
@@ -1324,6 +1342,45 @@ function bindModal() {
 function closeModal() {
   document.querySelector(".modal-backdrop")?.remove();
   state.editing = null;
+}
+
+function openDetail(moduleId, id) {
+  if (!can(moduleId, "view")) return;
+  const record = (db[collectionFor(moduleId)] || []).find((item) => item.id === id);
+  const module = modules.find((item) => item.id === moduleId);
+  if (!record || !module) return;
+  const rows = (moduleFields[moduleId] || []).map(([key, label]) => `
+    <div class="field"><label>${escapeHtml(label)}</label><div class="detail-value">${escapeHtml(formatDate(fieldValue(moduleId, record, key)))}</div></div>
+  `).join("");
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop">
+    <section class="modal">
+      <div class="modal-header"><div><h2 class="panel-title">查看${escapeHtml(module.name)}</h2><p class="compact-note">只读查看，不会修改任何数据。</p></div><button class="icon-btn" type="button" data-close-modal>×</button></div>
+      <div class="modal-body"><div class="form-grid">${rows}</div></div>
+      <div class="modal-footer"><button class="primary-btn" type="button" data-close-modal>关闭</button></div>
+    </section>
+  </div>`);
+  document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeModal));
+}
+
+function confirmAction(title, message, onConfirm) {
+  state.confirmAction = onConfirm;
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" data-confirm-modal>
+    <section class="modal confirm-modal">
+      <div class="modal-header"><div><h2 class="panel-title">${escapeHtml(title)}</h2><p class="compact-note">${escapeHtml(message)}</p></div></div>
+      <div class="modal-footer"><button class="ghost-btn" type="button" data-cancel-confirm>取消</button><button class="primary-btn" type="button" data-confirm-action>确认</button></div>
+    </section>
+  </div>`);
+  document.querySelector("[data-cancel-confirm]")?.addEventListener("click", closeConfirmAction);
+  document.querySelector("[data-confirm-action]")?.addEventListener("click", () => {
+    const action = state.confirmAction;
+    closeConfirmAction();
+    action?.();
+  });
+}
+
+function closeConfirmAction() {
+  document.querySelector("[data-confirm-modal]")?.remove();
+  state.confirmAction = null;
 }
 
 function saveRecord(moduleId, id, record) {
@@ -1460,7 +1517,7 @@ function canApproveSalesOrder() {
   return ["admin", "leader", "coordinator"].includes(state.currentUser?.role);
 }
 
-function createSalesOrderFromLead(leadId) {
+function openSalesOrderFromLead(leadId) {
   const lead = db.leads.find((item) => item.id === leadId);
   if (!lead) return;
   const order = getDefaultRecord("salesOrders");
@@ -1481,12 +1538,15 @@ function createSalesOrderFromLead(leadId) {
     status: "草稿",
     remark: `由线索 ${lead.code} 一键生成`,
   });
-  db.salesOrders.unshift(order);
-  logAction("create", "salesOrders", order.id, `由线索 ${lead.code} 生成销售订单`);
-  saveData();
-  toast(`已生成销售订单 ${order.code}`);
-  state.route = "salesOrders";
-  render();
+  state.editing = {
+    moduleId: "salesOrders",
+    id: null,
+    record: order,
+    sourceLeadId: lead.id,
+    title: "确认创建销售订单",
+  };
+  document.body.insertAdjacentHTML("beforeend", renderModal("salesOrders", order, false));
+  bindModal();
 }
 
 function submitSalesOrderForApproval(orderId) {
@@ -1587,8 +1647,6 @@ function createDeliveryFromSalesOrder(orderId) {
   const existing = db.deliveries.find((delivery) => delivery.sourceSalesOrderId === order.id && delivery.status !== "异常");
   if (existing) {
     toast(`该订单已有出库单 ${existing.code}`);
-    state.route = "deliveries";
-    render();
     return;
   }
   const delivery = getDefaultRecord("deliveries");
@@ -1612,7 +1670,6 @@ function createDeliveryFromSalesOrder(orderId) {
   logAction("create", "deliveries", delivery.id, `由销售订单 ${order.code} 生成出库单`);
   saveData();
   toast(`已生成出库单 ${delivery.code}`);
-  state.route = "deliveries";
   render();
 }
 
@@ -1645,8 +1702,6 @@ function createTrainingFromDelivery(deliveryId) {
   const existing = db.trainings.find((training) => training.deliveryId === delivery.id);
   if (existing) {
     toast(`该出库单已有培训验收单 ${existing.code}`);
-    state.route = "trainings";
-    render();
     return;
   }
   const order = db.salesOrders.find((item) => item.id === delivery.sourceSalesOrderId);
@@ -1671,7 +1726,6 @@ function createTrainingFromDelivery(deliveryId) {
   logAction("create", "trainings", training.id, `由出库单 ${delivery.code} 生成培训验收单`);
   saveData();
   toast(`已生成培训验收单 ${training.code}`);
-  state.route = "trainings";
   render();
 }
 
@@ -1707,12 +1761,14 @@ document.addEventListener("click", (event) => {
   if (arrive) {
     const purchase = db.purchases.find((p) => p.id === arrive.dataset.arrive);
     if (!purchase) return;
-    purchase.status = "已到货";
-    purchase.updatedAt = nowIso();
-    receivePurchase(purchase);
-    saveData();
-    toast("采购已到货并同步入库");
-    render();
+    confirmAction("确认到货入库", `确认 ${purchase.code} 已到货并入库吗？确认后库存会自动增加并写入库存流水。`, () => {
+      purchase.status = "已到货";
+      purchase.updatedAt = nowIso();
+      receivePurchase(purchase);
+      saveData();
+      toast("采购已到货并同步入库");
+      render();
+    });
   }
 });
 
