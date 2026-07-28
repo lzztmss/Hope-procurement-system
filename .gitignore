@@ -1,0 +1,13 @@
+# Local machine settings and secrets
+.env
+.env.local
+.DS_Store
+
+# Installed dependencies
+node_modules/
+
+# Local database backups (kept only on this computer)
+backups/
+
+# Runtime logs
+*.log

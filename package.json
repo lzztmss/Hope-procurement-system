@@ -1,0 +1,17 @@
+{
+  "name": "xinlianxin-elderly-ops-production",
+  "version": "1.0.0",
+  "private": true,
+  "description": "心连心智能养老业务运营系统公网生产版",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "migrate": "node scripts/migrate_json_to_postgres.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}

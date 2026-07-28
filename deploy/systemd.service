@@ -1,0 +1,21 @@
+[Unit]
+Description=Xinlianxin Elderly Ops Production Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__APP_DIR__/.env
+ExecStart=/usr/bin/node __APP_DIR__/server.js
+Restart=always
+RestartSec=5
+User=__APP_USER__
+Group=__APP_USER__
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=__APP_DIR__
+
+[Install]
+WantedBy=multi-user.target

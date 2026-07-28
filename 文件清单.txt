@@ -1,0 +1,47 @@
+心连心智能养老业务运营系统公网生产版安装包
+版本：1.0.0 公网生产版
+日期：2026-07-10
+
+一、核心文件
+1. server.js
+   Node.js 生产服务入口，提供静态页面、登录接口和业务数据接口。
+
+2. lib/security.js
+   密码哈希、密码验证和登录会话 Token 处理。
+
+3. lib/database.js
+   PostgreSQL 数据表初始化、业务数据读写、员工账号和会话管理。
+
+4. app/
+   前端页面、样式、脚本和公司 Logo。
+
+5. data/initial-db.json
+   初始业务数据，安装时导入 PostgreSQL。
+
+6. deploy/nginx.conf
+   Nginx HTTPS 反向代理模板。
+
+7. deploy/systemd.service
+   Linux systemd 常驻服务模板。
+
+8. scripts/install_ubuntu.sh
+   Ubuntu 一键安装脚本。
+
+9. scripts/backup_db.sh
+   PostgreSQL 数据库备份脚本。
+
+10. scripts/restore_db.sh
+    PostgreSQL 数据库恢复脚本。
+
+11. docs/公网生产版安装部署说明.md
+    Markdown 版正式安装手册。
+
+12. docs/公网生产版安装部署说明.pdf
+    PDF 版正式安装手册，带公司 Logo 页眉。
+
+二、正式访问方式
+公网访问：https://你的域名
+手机端访问：手机浏览器打开同一 HTTPS 地址。
+
+三、安全提醒
+公网只开放 80/443。不要开放 PostgreSQL 5432，也不要开放 Node 8787。首次登录后必须修改管理员密码，并配置每日自动备份。
