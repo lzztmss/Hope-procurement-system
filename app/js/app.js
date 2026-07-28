@@ -9,65 +9,73 @@ const roles = {
   admin: {
     name: "系统管理员",
     scope: "全部",
-    modules: ["dashboard", "leads", "purchases", "inventory", "deliveries", "aftersales", "products", "suppliers", "notices", "users"],
+    modules: ["dashboard", "leads", "salesOrders", "purchases", "inventory", "deliveries", "trainings", "aftersales", "products", "suppliers", "notices", "users"],
     actions: ["view", "create", "edit", "delete", "export", "config"],
   },
   leader: {
     name: "公司领导",
     scope: "全部",
-    modules: ["dashboard", "leads", "purchases", "inventory", "deliveries", "aftersales", "products", "suppliers", "notices"],
+    modules: ["dashboard", "leads", "salesOrders", "purchases", "inventory", "deliveries", "trainings", "aftersales", "products", "suppliers", "notices"],
     actions: ["view", "export"],
   },
   coordinator: {
     name: "业务统筹",
     scope: "全部",
-    modules: ["dashboard", "leads", "purchases", "inventory", "deliveries", "aftersales", "products", "suppliers", "notices"],
+    modules: ["dashboard", "leads", "salesOrders", "purchases", "inventory", "deliveries", "trainings", "aftersales", "products", "suppliers", "notices"],
     actions: ["view", "create", "edit", "export"],
   },
   sales: {
     name: "销售/业务",
     scope: "本人",
-    modules: ["dashboard", "leads", "deliveries", "aftersales", "notices"],
+    modules: ["dashboard", "leads", "salesOrders", "deliveries", "trainings", "aftersales", "notices"],
     actions: ["view", "create", "edit"],
   },
   purchase: {
     name: "采购",
     scope: "本部门",
-    modules: ["dashboard", "purchases", "inventory", "products", "suppliers", "notices"],
+    modules: ["dashboard", "salesOrders", "purchases", "inventory", "products", "suppliers", "notices"],
     actions: ["view", "create", "edit", "export"],
   },
   warehouse: {
     name: "仓库/行政",
     scope: "本部门",
-    modules: ["dashboard", "inventory", "deliveries", "purchases", "products", "notices"],
+    modules: ["dashboard", "salesOrders", "inventory", "deliveries", "purchases", "products", "notices"],
     actions: ["view", "create", "edit", "export"],
   },
   technician: {
     name: "技术",
     scope: "本部门",
-    modules: ["dashboard", "purchases", "deliveries", "aftersales", "products", "notices"],
+    modules: ["dashboard", "salesOrders", "purchases", "deliveries", "trainings", "aftersales", "products", "notices"],
     actions: ["view", "edit"],
   },
   aftersales: {
     name: "售后",
     scope: "本部门",
-    modules: ["dashboard", "aftersales", "deliveries", "inventory", "products", "notices"],
+    modules: ["dashboard", "salesOrders", "aftersales", "deliveries", "trainings", "inventory", "products", "notices"],
     actions: ["view", "create", "edit"],
   },
   finance: {
     name: "财务",
     scope: "本部门",
-    modules: ["dashboard", "purchases", "inventory", "products", "suppliers", "notices"],
+    modules: ["dashboard", "salesOrders", "purchases", "inventory", "products", "suppliers", "notices"],
     actions: ["view", "export"],
+  },
+  trainer: {
+    name: "技术/培训",
+    scope: "本部门",
+    modules: ["dashboard", "salesOrders", "deliveries", "trainings", "aftersales", "products", "notices"],
+    actions: ["view", "create", "edit"],
   },
 };
 
 const modules = [
   { id: "dashboard", name: "工作台", icon: "▦", desc: "领导看板、风险预警和待办汇总" },
   { id: "leads", name: "线索台账", icon: "◎", desc: "客户线索、合作意向、项目机会" },
+  { id: "salesOrders", name: "销售订单", icon: "▣", desc: "由成交线索生成，连接库存、采购、出库和交付" },
   { id: "purchases", name: "采购需求", icon: "□", desc: "大宗、项目、临时、补库、售后换货采购" },
   { id: "inventory", name: "库存台账", icon: "▤", desc: "当前库存、可用库存、安全库存和在途" },
   { id: "deliveries", name: "出库交付", icon: "⇄", desc: "送样、交付、培训、签收与验收" },
+  { id: "trainings", name: "培训验收", icon: "✓", desc: "出库后的客户培训、验收和问题闭环" },
   { id: "aftersales", name: "售后工单", icon: "◇", desc: "故障、换货、配置、平台和客户反馈" },
   { id: "products", name: "产品字典", icon: "◆", desc: "统一维护产品名称、类别、规格、默认供应商和安全库存" },
   { id: "suppliers", name: "供应商交期", icon: "⌁", desc: "供应商、MOQ、付款、交期和换货周期" },
@@ -93,6 +101,24 @@ const moduleFields = {
     ["status", "状态", "select", true, ["待分派", "跟进中", "待客户反馈", "待报价", "待投标", "已成交", "已关闭"]],
     ["remark", "备注", "textarea", false],
   ],
+  salesOrders: [
+    ["code", "销售订单号", "text", true],
+    ["leadId", "来源线索", "lead", false],
+    ["customer", "客户名称", "text", true],
+    ["contact", "联系人", "text", false],
+    ["phone", "联系电话", "text", false],
+    ["product", "产品名称", "product", true],
+    ["model", "型号/规格", "text", false],
+    ["quantity", "数量", "number", true],
+    ["unitPrice", "单价", "number", false],
+    ["totalAmount", "订单金额", "number", false],
+    ["contractNo", "合同编号", "text", false],
+    ["contractFile", "合同附件说明", "text", false],
+    ["deliveryDate", "预计交付日期", "date", false],
+    ["owner", "业务负责人", "user", true],
+    ["status", "订单状态", "select", true, ["草稿", "待销售审批", "待库存确认", "待采购审批", "待采购到货", "待出库", "已出库", "已完成", "已取消"]],
+    ["remark", "备注", "textarea", false],
+  ],
   purchases: [
     ["code", "需求单号", "text", true],
     ["submittedAt", "提交日期", "date", true],
@@ -110,7 +136,7 @@ const moduleFields = {
     ["owner", "采购负责人", "user", true],
     ["techOwner", "技术确认人", "user", false],
     ["payment", "付款方式", "select", false, ["公对公", "个人垫付报销", "月结", "预付", "货到付款"]],
-    ["status", "状态", "select", true, ["待技术确认", "待采购确认", "已下单", "在途", "已到货", "已取消", "异常"]],
+    ["status", "状态", "select", true, ["待采购审批", "待技术确认", "待采购确认", "已下单", "在途", "已到货", "已取消", "异常"]],
     ["remark", "备注", "textarea", false],
   ],
   inventory: [
@@ -156,6 +182,23 @@ const moduleFields = {
     ["training", "培训需求", "select", false, ["需要", "不需要", "待确认"]],
     ["trainingAt", "培训时间", "datetime-local", false],
     ["status", "签收/验收状态", "select", true, ["待出库", "已出库", "配送中", "已签收", "已验收", "异常"]],
+    ["remark", "备注", "textarea", false],
+  ],
+  trainings: [
+    ["code", "培训验收单号", "text", true],
+    ["salesOrderId", "关联销售订单", "salesorder", false],
+    ["deliveryId", "关联出库单", "delivery", true],
+    ["customer", "客户", "text", true],
+    ["product", "产品", "product", true],
+    ["quantity", "数量", "number", false],
+    ["trainingAt", "培训日期", "datetime-local", false],
+    ["trainer", "培训人员", "user", true],
+    ["customerAttendees", "客户参与人员", "text", false],
+    ["content", "培训内容", "textarea", false],
+    ["acceptanceResult", "验收结果", "select", true, ["待培训", "培训完成待验收", "验收通过", "验收不通过"]],
+    ["attachment", "验收附件说明", "text", false],
+    ["issue", "问题记录", "textarea", false],
+    ["status", "状态", "select", true, ["待培训", "进行中", "待验收", "已完成", "异常"]],
     ["remark", "备注", "textarea", false],
   ],
   aftersales: [
@@ -217,9 +260,11 @@ const moduleFields = {
 
 const tableColumns = {
   leads: ["code", "customer", "product", "quantity", "stage", "owner", "dueDate", "status"],
+  salesOrders: ["code", "customer", "product", "quantity", "totalAmount", "deliveryDate", "owner", "status"],
   purchases: ["code", "type", "product", "quantity", "supplierId", "lockedDate", "owner", "status"],
   inventory: ["sku", "name", "category", "stock", "locked", "available", "safeStock", "inTransit", "statusText"],
   deliveries: ["code", "project", "type", "inventoryId", "quantity", "owner", "status"],
+  trainings: ["code", "customer", "product", "quantity", "trainer", "trainingAt", "acceptanceResult", "status"],
   aftersales: ["code", "customer", "product", "type", "priority", "owner", "promiseAt", "status"],
   products: ["code", "name", "category", "model", "unit", "safeStock", "supplierId", "status"],
   suppliers: ["name", "product", "contact", "phone", "moq", "leadTime", "status"],
@@ -229,6 +274,9 @@ const tableColumns = {
 
 const columnLabels = {
   code: "编号",
+  leadId: "来源线索",
+  salesOrderId: "销售订单",
+  deliveryId: "出库单",
   customer: "客户",
   product: "产品",
   quantity: "数量",
@@ -264,6 +312,12 @@ const columnLabels = {
   role: "角色",
   model: "型号/规格",
   unit: "单位",
+  unitPrice: "单价",
+  totalAmount: "订单金额",
+  deliveryDate: "预计交付",
+  trainer: "培训人员",
+  trainingAt: "培训日期",
+  acceptanceResult: "验收结果",
 };
 
 const state = {
@@ -314,11 +368,34 @@ function normalizeData(data) {
   if (!Array.isArray(normalized.products)) {
     normalized.products = defaultProducts();
   }
-  for (const key of ["users", "suppliers", "inventory", "leads", "purchases", "deliveries", "aftersales", "notices", "inventoryLogs", "auditLogs"]) {
+  for (const key of ["users", "suppliers", "inventory", "leads", "salesOrders", "purchases", "deliveries", "trainings", "aftersales", "notices", "inventoryLogs", "auditLogs"]) {
     if (!Array.isArray(normalized[key])) normalized[key] = [];
   }
+  normalized.inventory.forEach((item) => {
+    if (!item.productId) item.productId = findProductByLabel(normalized.products, item.name, item.model)?.id || "";
+  });
+  normalized.salesOrders.forEach((order) => {
+    if (!order.productId) order.productId = findProductByLabel(normalized.products, order.product, order.model)?.id || "";
+    order.totalAmount = Number(order.totalAmount || Number(order.quantity || 0) * Number(order.unitPrice || 0));
+  });
+  normalized.purchases.forEach((purchase) => {
+    if (!purchase.productId) purchase.productId = findProductByLabel(normalized.products, purchase.product, purchase.model)?.id || "";
+  });
   if (!normalized.meta) normalized.meta = { version: 1, createdAt: nowIso() };
+  normalized.meta.version = Math.max(Number(normalized.meta.version || 1), 2);
   return normalized;
+}
+
+function normalizedProductName(value) {
+  return String(value || "").replaceAll("居家", "").replaceAll("智能", "").replaceAll("/", "").replaceAll("配件", "").replaceAll(" ", "").toLowerCase();
+}
+
+function findProductByLabel(products, name, model = "") {
+  const target = normalizedProductName(name);
+  return (products || []).find((product) => {
+    const candidate = normalizedProductName(product.name);
+    return candidate === target || (candidate.length > 1 && (candidate.includes(target) || target.includes(candidate))) || (product.model && model && product.model === model);
+  });
 }
 
 function getInitialData() {
@@ -403,7 +480,7 @@ async function loadData() {
       return data;
     }
     const parsed = JSON.parse(raw);
-    if (!parsed.meta || parsed.meta.version !== 1) throw new Error("version mismatch");
+    if (!parsed.meta || Number(parsed.meta.version || 0) < 1) throw new Error("version mismatch");
     return normalizeData(parsed);
   } catch {
     const data = getInitialData();
@@ -492,6 +569,24 @@ function productOptions(currentValue = "") {
   return options;
 }
 
+function productById(productId) {
+  return db.products.find((product) => product.id === productId) || null;
+}
+
+function inventoryForProduct(productName, productId = "", model = "") {
+  if (productId) {
+    const byId = db.inventory.find((item) => item.productId === productId);
+    if (byId) return byId;
+  }
+  const product = productById(productId) || findProductByLabel(db.products, productName, model);
+  return db.inventory.find((item) => {
+    if (product?.id && item.productId === product.id) return true;
+    const itemName = normalizedProductName(item.name);
+    const target = normalizedProductName(productName);
+    return itemName === target || (itemName.length > 1 && (itemName.includes(target) || target.includes(itemName)));
+  }) || null;
+}
+
 function roleName(id) {
   return roles[id]?.name || id || "-";
 }
@@ -530,6 +625,8 @@ function listRecords(moduleId) {
   const collection = collectionFor(moduleId);
   const source = db[collection] || [];
   if (moduleId === "users" && state.currentUser.role !== "admin") return [];
+  // 库存数量是公司统一事实；有库存模块权限的员工应看到同一份库存。
+  if (moduleId === "inventory") return source;
   return source.filter(canSeeRecord);
 }
 
@@ -638,6 +735,10 @@ function fieldValue(moduleId, record, key) {
   if (["owner", "requester", "publisher", "techOwner"].includes(key)) return userName(record[key]);
   if (key === "supplierId") return supplierName(record[key]);
   if (key === "inventoryId") return inventoryName(record[key]);
+  if (key === "leadId") return db.leads.find((lead) => lead.id === record[key])?.code || "-";
+  if (key === "salesOrderId") return db.salesOrders.find((order) => order.id === record[key])?.code || "-";
+  if (key === "deliveryId") return db.deliveries.find((delivery) => delivery.id === record[key])?.code || "-";
+  if (key === "trainer") return userName(record[key]);
   if (key === "role") return roleName(record[key]);
   if (Array.isArray(record[key])) return record[key].map(roleName).join("、");
   return record[key] ?? "-";
@@ -814,6 +915,14 @@ function bindGlobalActions() {
   }));
   document.querySelectorAll("[data-inbound]").forEach((btn) => btn.addEventListener("click", () => adjustStock(btn.dataset.inbound, "入库")));
   document.querySelectorAll("[data-outbound]").forEach((btn) => btn.addEventListener("click", () => adjustStock(btn.dataset.outbound, "出库")));
+  document.querySelectorAll("[data-create-order]").forEach((btn) => btn.addEventListener("click", () => createSalesOrderFromLead(btn.dataset.createOrder)));
+  document.querySelectorAll("[data-submit-order]").forEach((btn) => btn.addEventListener("click", () => submitSalesOrderForApproval(btn.dataset.submitOrder)));
+  document.querySelectorAll("[data-approve-order]").forEach((btn) => btn.addEventListener("click", () => approveSalesOrder(btn.dataset.approveOrder)));
+  document.querySelectorAll("[data-check-order]").forEach((btn) => btn.addEventListener("click", () => checkSalesOrderInventory(btn.dataset.checkOrder)));
+  document.querySelectorAll("[data-create-delivery]").forEach((btn) => btn.addEventListener("click", () => createDeliveryFromSalesOrder(btn.dataset.createDelivery)));
+  document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound)));
+  document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => createTrainingFromDelivery(btn.dataset.createTraining)));
+  document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => approvePurchase(btn.dataset.approvePurchase)));
   document.querySelector("[data-export]")?.addEventListener("click", () => exportCsv(state.route));
   const search = document.querySelector("[data-search]");
   if (search) {
@@ -1030,12 +1139,38 @@ function renderCards(moduleId, records) {
 
 function renderActions(moduleId, record) {
   const buttons = [];
+  if (moduleId === "leads" && can("salesOrders", "create") && (record.stage === "已成交" || record.status === "已成交")) {
+    buttons.push(`<button class="primary-btn" data-create-order="${record.id}">生成销售订单</button>`);
+  }
+  if (moduleId === "salesOrders") {
+    if (record.status === "草稿" && can("salesOrders", "edit")) {
+      buttons.push(`<button class="primary-btn" data-submit-order="${record.id}">提交审批</button>`);
+    }
+    if (record.status === "待销售审批" && canApproveSalesOrder()) {
+      buttons.push(`<button class="primary-btn" data-approve-order="${record.id}">审批通过</button>`);
+    }
+    if (["待库存确认", "待采购到货"].includes(record.status) && can("salesOrders", "edit")) {
+      buttons.push(`<button class="primary-btn" data-check-order="${record.id}">检查库存</button>`);
+    }
+    if (record.status === "待出库" && can("deliveries", "create")) {
+      buttons.push(`<button class="primary-btn" data-create-delivery="${record.id}">生成出库单</button>`);
+    }
+  }
   if (moduleId === "inventory" && can("inventory", "edit")) {
     buttons.push(`<button class="ghost-btn" data-inbound="${record.id}">入库</button>`);
     buttons.push(`<button class="ghost-btn" data-outbound="${record.id}">出库</button>`);
   }
-  if (moduleId === "purchases" && can("purchases", "edit") && record.status !== "已到货") {
+  if (moduleId === "purchases" && canApprovePurchase() && record.status === "待采购审批") {
+    buttons.push(`<button class="primary-btn" data-approve-purchase="${record.id}">审批通过</button>`);
+  }
+  if (moduleId === "purchases" && can("purchases", "edit") && record.status !== "已到货" && record.status !== "待采购审批") {
     buttons.push(`<button class="ghost-btn" data-arrive="${record.id}">到货入库</button>`);
+  }
+  if (moduleId === "deliveries" && can("deliveries", "edit") && record.status === "待出库") {
+    buttons.push(`<button class="primary-btn" data-confirm-outbound="${record.id}">确认出库</button>`);
+  }
+  if (moduleId === "deliveries" && can("trainings", "create") && ["已出库", "配送中", "已签收", "已验收"].includes(record.status)) {
+    buttons.push(`<button class="ghost-btn" data-create-training="${record.id}">生成培训验收</button>`);
   }
   if (can(moduleId, "edit")) buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-edit="${record.id}">编辑</button>`);
   if (can(moduleId, "delete")) buttons.push(`<button class="danger-btn" data-module="${moduleId}" data-delete="${record.id}">删除</button>`);
@@ -1071,7 +1206,7 @@ function getDefaultRecord(moduleId) {
   const fields = moduleFields[moduleId] || [];
   const record = { id: uid(moduleId.slice(0, 3)), createdBy: state.currentUser.id, createdAt: nowIso(), updatedAt: nowIso() };
   fields.forEach(([key, , type, required, options]) => {
-    if (key === "owner" || key === "requester" || key === "publisher") record[key] = state.currentUser.id;
+    if (key === "owner" || key === "requester" || key === "publisher" || key === "trainer") record[key] = state.currentUser.id;
     else if (key === "status" && options) record[key] = options[0];
     else if (type === "date") record[key] = today;
     else if (type === "number") record[key] = required ? 0 : "";
@@ -1079,8 +1214,10 @@ function getDefaultRecord(moduleId) {
     else record[key] = "";
   });
   if (moduleId === "leads") record.code = `L${Date.now().toString().slice(-8)}`;
+  if (moduleId === "salesOrders") record.code = `SO${Date.now().toString().slice(-8)}`;
   if (moduleId === "purchases") record.code = `P${Date.now().toString().slice(-8)}`;
   if (moduleId === "deliveries") record.code = `D${Date.now().toString().slice(-8)}`;
+  if (moduleId === "trainings") record.code = `T${Date.now().toString().slice(-8)}`;
   if (moduleId === "aftersales") record.code = `A${Date.now().toString().slice(-8)}`;
   return record;
 }
@@ -1127,6 +1264,12 @@ function renderField([key, label, type, required, options], record) {
     input = `<select ${common}>${options.map((op) => `<option ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
   } else if (type === "product") {
     input = `<select ${common}>${productOptions(value).map((op) => `<option value="${escapeHtml(op)}" ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
+  } else if (type === "lead") {
+    input = `<select ${common}><option value="">无</option>${db.leads.map((lead) => `<option value="${lead.id}" ${value === lead.id ? "selected" : ""}>${escapeHtml(lead.code)} - ${escapeHtml(lead.customer)}</option>`).join("")}</select>`;
+  } else if (type === "salesorder") {
+    input = `<select ${common}><option value="">无</option>${db.salesOrders.map((order) => `<option value="${order.id}" ${value === order.id ? "selected" : ""}>${escapeHtml(order.code)} - ${escapeHtml(order.customer)}</option>`).join("")}</select>`;
+  } else if (type === "delivery") {
+    input = `<select ${common}>${db.deliveries.map((delivery) => `<option value="${delivery.id}" ${value === delivery.id ? "selected" : ""}>${escapeHtml(delivery.code)} - ${escapeHtml(delivery.project)}</option>`).join("")}</select>`;
   } else if (type === "user") {
     input = `<select ${common}>${db.users.filter((u) => u.status === "启用").map((u) => `<option value="${u.id}" ${value === u.id ? "selected" : ""}>${escapeHtml(u.name)} - ${roleName(u.role)}</option>`).join("")}</select>`;
   } else if (type === "supplier") {
@@ -1162,6 +1305,10 @@ function bindModal() {
         next[key] = formData.get(key);
       }
     });
+    if (["salesOrders", "purchases", "trainings"].includes(moduleId)) {
+      next.productId = findProductByLabel(db.products, next.product, next.model)?.id || "";
+    }
+    if (moduleId === "salesOrders") next.totalAmount = Number(next.quantity || 0) * Number(next.unitPrice || 0);
     next.updatedAt = nowIso();
     const result = saveRecord(moduleId, id, next);
     if (!result.ok) {
@@ -1194,6 +1341,22 @@ function saveRecord(moduleId, id, record) {
   }
   const collection = collectionFor(moduleId);
   const oldRecord = id ? { ...(db[collection].find((r) => r.id === id) || {}) } : null;
+  if (moduleId === "inventory" && !id) {
+    const product = findProductByLabel(db.products, record.name, record.model);
+    const existing = inventoryForProduct(record.name, product?.id || "", record.model);
+    if (existing) {
+      const amount = Number(record.stock || 0);
+      if (amount > 0) applyInventoryChange(existing.id, "入库", amount, "新增库存时自动合并", record.id);
+      existing.safeStock = Number(record.safeStock || existing.safeStock || 0);
+      existing.location = record.location || existing.location;
+      existing.remark = record.remark || existing.remark;
+      existing.updatedAt = nowIso();
+      logAction("merge", "inventory", existing.id, "同产品库存已自动合并");
+      saveData();
+      return { ok: true, message: "已合并到原库存" };
+    }
+    record.productId = product?.id || "";
+  }
   if (id) {
     const index = db[collection].findIndex((r) => r.id === id);
     db[collection][index] = record;
@@ -1249,18 +1412,267 @@ function applyInventoryChange(itemId, action, quantity, remark, sourceId = "") {
 }
 
 function receivePurchase(purchase) {
-  const product = String(purchase.product || "");
-  const item = db.inventory.find((i) =>
-    i.id === purchase.inventoryId ||
-    i.name === product ||
-    i.category === product ||
-    product.includes(i.category) ||
-    i.name.includes(product.replace("/配件", "")),
-  );
-  if (!item) return;
+  const item = ensureInventoryForProduct(purchase.product, purchase.productId, purchase.model);
   if (purchase.receivedApplied) return;
   applyInventoryChange(item.id, "入库", Number(purchase.quantity || 0), `采购到货 ${purchase.code}`, purchase.id);
   purchase.receivedApplied = true;
+  if (purchase.sourceSalesOrderId) {
+    const order = db.salesOrders.find((candidate) => candidate.id === purchase.sourceSalesOrderId);
+    if (order) {
+      order.status = availableStock(item) >= Number(order.quantity || 0) ? "待出库" : "待采购到货";
+      order.updatedAt = nowIso();
+    }
+  }
+}
+
+function ensureInventoryForProduct(productName, productId = "", model = "") {
+  const existing = inventoryForProduct(productName, productId, model);
+  if (existing) return existing;
+  const product = productById(productId) || findProductByLabel(db.products, productName, model) || {};
+  const item = {
+    id: uid("inv"),
+    productId: product.id || productId || "",
+    sku: product.code ? `SKU-${product.code}` : `SKU-${Date.now().toString().slice(-8)}`,
+    name: product.name || productName,
+    model: product.model || model || "",
+    category: product.category || "其他",
+    safeStock: Number(product.safeStock || 0),
+    stock: 0,
+    locked: 0,
+    inTransit: 0,
+    eta: "",
+    location: "待分配",
+    checkedAt: today,
+    owner: state.currentUser?.id || "",
+    remark: "由采购到货自动创建",
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  db.inventory.unshift(item);
+  return item;
+}
+
+function canApprovePurchase() {
+  return ["admin", "purchase"].includes(state.currentUser?.role);
+}
+
+function canApproveSalesOrder() {
+  return ["admin", "leader", "coordinator"].includes(state.currentUser?.role);
+}
+
+function createSalesOrderFromLead(leadId) {
+  const lead = db.leads.find((item) => item.id === leadId);
+  if (!lead) return;
+  const order = getDefaultRecord("salesOrders");
+  const product = findProductByLabel(db.products, lead.product);
+  Object.assign(order, {
+    leadId: lead.id,
+    customer: lead.customer,
+    contact: lead.contact,
+    phone: lead.phone,
+    product: lead.product,
+    productId: product?.id || "",
+    model: product?.model || "",
+    quantity: Number(lead.quantity || 0),
+    unitPrice: 0,
+    totalAmount: 0,
+    owner: lead.owner || state.currentUser.id,
+    deliveryDate: lead.dueDate || today,
+    status: "草稿",
+    remark: `由线索 ${lead.code} 一键生成`,
+  });
+  db.salesOrders.unshift(order);
+  logAction("create", "salesOrders", order.id, `由线索 ${lead.code} 生成销售订单`);
+  saveData();
+  toast(`已生成销售订单 ${order.code}`);
+  state.route = "salesOrders";
+  render();
+}
+
+function submitSalesOrderForApproval(orderId) {
+  const order = db.salesOrders.find((item) => item.id === orderId);
+  if (!order || order.status !== "草稿") return;
+  order.status = "待销售审批";
+  order.submittedBy = state.currentUser.id;
+  order.submittedAt = nowIso();
+  order.updatedAt = nowIso();
+  logAction("submit", "salesOrders", order.id, "销售订单已提交审批");
+  saveData();
+  toast("订单已提交审批，审批通过后才会检查库存");
+  render();
+}
+
+function approveSalesOrder(orderId) {
+  const order = db.salesOrders.find((item) => item.id === orderId);
+  if (!order || order.status !== "待销售审批" || !canApproveSalesOrder()) return;
+  order.status = "待库存确认";
+  order.approvedBy = state.currentUser.id;
+  order.approvedAt = nowIso();
+  order.updatedAt = nowIso();
+  logAction("approve", "salesOrders", order.id, "销售订单审批通过，等待库存检查");
+  saveData();
+  toast("销售订单已审批通过，请进行库存检查");
+  render();
+}
+
+function checkSalesOrderInventory(orderId) {
+  const order = db.salesOrders.find((item) => item.id === orderId);
+  if (!order) return;
+  const item = inventoryForProduct(order.product, order.productId, order.model);
+  if (item && availableStock(item) >= Number(order.quantity || 0)) {
+    order.status = "待出库";
+    order.inventoryId = item.id;
+    order.updatedAt = nowIso();
+    logAction("inventory_check", "salesOrders", order.id, `库存充足，可生成出库单：${item.name}`);
+    saveData();
+    toast("库存充足，销售订单已进入待出库");
+    render();
+    return;
+  }
+  order.status = "待采购审批";
+  order.updatedAt = nowIso();
+  const existing = db.purchases.find((purchase) => purchase.sourceSalesOrderId === order.id && purchase.status !== "已取消");
+  if (!existing) {
+    const purchase = getDefaultRecord("purchases");
+    const buyer = db.users.find((user) => user.role === "purchase" && user.status === "启用");
+    Object.assign(purchase, {
+      requester: order.owner,
+      owner: buyer?.id || state.currentUser.id,
+      type: "项目采购",
+      product: order.product,
+      productId: order.productId,
+      model: order.model,
+      quantity: Number(order.quantity || 0),
+      project: order.customer,
+      requiredDate: order.deliveryDate,
+      sourceSalesOrderId: order.id,
+      status: "待采购审批",
+      remark: `销售订单 ${order.code} 库存不足自动生成，等待有采购权限的人员审批`,
+    });
+    db.purchases.unshift(purchase);
+    logAction("create", "purchases", purchase.id, `销售订单 ${order.code} 缺货自动生成采购申请`);
+  }
+  logAction("inventory_shortage", "salesOrders", order.id, "库存不足，已生成待采购审批申请");
+  saveData();
+  toast("库存不足，已通知采购人员审批");
+  render();
+}
+
+function approvePurchase(purchaseId) {
+  const purchase = db.purchases.find((item) => item.id === purchaseId);
+  if (!purchase || !canApprovePurchase()) return;
+  purchase.status = "待采购确认";
+  purchase.approvedBy = state.currentUser.id;
+  purchase.approvedAt = nowIso();
+  purchase.updatedAt = nowIso();
+  const order = db.salesOrders.find((item) => item.id === purchase.sourceSalesOrderId);
+  if (order) {
+    order.status = "待采购到货";
+    order.updatedAt = nowIso();
+  }
+  logAction("approve", "purchases", purchase.id, "采购审批通过");
+  saveData();
+  toast("已审批通过，采购单进入待采购确认");
+  render();
+}
+
+function createDeliveryFromSalesOrder(orderId) {
+  const order = db.salesOrders.find((item) => item.id === orderId);
+  if (!order) return;
+  const item = inventoryForProduct(order.product, order.productId, order.model);
+  if (!item || availableStock(item) < Number(order.quantity || 0)) {
+    toast("库存已变化，请重新检查库存");
+    return;
+  }
+  const existing = db.deliveries.find((delivery) => delivery.sourceSalesOrderId === order.id && delivery.status !== "异常");
+  if (existing) {
+    toast(`该订单已有出库单 ${existing.code}`);
+    state.route = "deliveries";
+    render();
+    return;
+  }
+  const delivery = getDefaultRecord("deliveries");
+  Object.assign(delivery, {
+    date: today,
+    project: order.customer,
+    type: "销售交付",
+    inventoryId: item.id,
+    productId: order.productId,
+    quantity: Number(order.quantity || 0),
+    receiver: order.contact,
+    owner: order.owner,
+    sourceSalesOrderId: order.id,
+    training: "待确认",
+    status: "待出库",
+    remark: `由销售订单 ${order.code} 自动生成`,
+  });
+  db.deliveries.unshift(delivery);
+  order.deliveryId = delivery.id;
+  order.updatedAt = nowIso();
+  logAction("create", "deliveries", delivery.id, `由销售订单 ${order.code} 生成出库单`);
+  saveData();
+  toast(`已生成出库单 ${delivery.code}`);
+  state.route = "deliveries";
+  render();
+}
+
+function confirmDeliveryOutbound(deliveryId) {
+  const delivery = db.deliveries.find((item) => item.id === deliveryId);
+  if (!delivery || delivery.status !== "待出库") return;
+  const item = db.inventory.find((inventory) => inventory.id === delivery.inventoryId);
+  if (!item || availableStock(item) < Number(delivery.quantity || 0)) {
+    toast("库存不足，无法确认出库");
+    return;
+  }
+  applyInventoryChange(item.id, "出库", Number(delivery.quantity || 0), `出库单 ${delivery.code}`, delivery.id);
+  delivery.status = "已出库";
+  delivery.outboundAt = nowIso();
+  delivery.updatedAt = nowIso();
+  const order = db.salesOrders.find((candidate) => candidate.id === delivery.sourceSalesOrderId);
+  if (order) {
+    order.status = "已出库";
+    order.updatedAt = nowIso();
+  }
+  logAction("outbound", "deliveries", delivery.id, "确认出库并扣减库存");
+  saveData();
+  toast("已出库，库存已自动扣减");
+  render();
+}
+
+function createTrainingFromDelivery(deliveryId) {
+  const delivery = db.deliveries.find((item) => item.id === deliveryId);
+  if (!delivery) return;
+  const existing = db.trainings.find((training) => training.deliveryId === delivery.id);
+  if (existing) {
+    toast(`该出库单已有培训验收单 ${existing.code}`);
+    state.route = "trainings";
+    render();
+    return;
+  }
+  const order = db.salesOrders.find((item) => item.id === delivery.sourceSalesOrderId);
+  const item = db.inventory.find((inventory) => inventory.id === delivery.inventoryId);
+  const training = getDefaultRecord("trainings");
+  Object.assign(training, {
+    salesOrderId: order?.id || "",
+    deliveryId: delivery.id,
+    customer: delivery.project,
+    product: item?.name || order?.product || "",
+    productId: item?.productId || order?.productId || "",
+    quantity: Number(delivery.quantity || 0),
+    trainer: state.currentUser.id,
+    status: "待培训",
+    acceptanceResult: "待培训",
+    remark: `由出库单 ${delivery.code} 自动生成`,
+  });
+  db.trainings.unshift(training);
+  delivery.trainingId = training.id;
+  delivery.training = "需要";
+  delivery.updatedAt = nowIso();
+  logAction("create", "trainings", training.id, `由出库单 ${delivery.code} 生成培训验收单`);
+  saveData();
+  toast(`已生成培训验收单 ${training.code}`);
+  state.route = "trainings";
+  render();
 }
 
 function adjustStock(itemId, action) {
