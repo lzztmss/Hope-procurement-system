@@ -142,9 +142,11 @@ function serveStatic(req, res) {
       return;
     }
     const type = mimeTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+    // 页面、脚本和样式必须及时更新；否则浏览器会继续运行旧版流程代码。
+    const noStore = [".html", ".js", ".css"].includes(path.extname(filePath).toLowerCase());
     res.writeHead(200, {
       "Content-Type": type,
-      "Cache-Control": type.startsWith("text/html") ? "no-store" : "public, max-age=3600",
+      "Cache-Control": noStore ? "no-store" : "public, max-age=3600",
     });
     res.end(data);
   });
