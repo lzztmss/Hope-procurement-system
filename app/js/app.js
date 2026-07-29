@@ -1,3 +1,5 @@
+import { workflowActionRoles, workflowActions } from "./workflow-config.js";
+
 const APP_KEY = "xlx_ops_mvp_v1";
 const SESSION_KEY = "xlx_ops_session_v1";
 const ACTIVITY_READ_KEY = "xlx_ops_activity_read_v1";
@@ -67,23 +69,6 @@ const roles = {
     modules: ["dashboard", "salesOrders", "deliveries", "trainings", "aftersales", "products", "notices"],
     actions: ["view", "create", "edit"],
   },
-};
-
-// 流程动作与角色分开定义。后续权限后台只需给员工写入 workflowActions，
-// 就可覆盖这里的默认角色规则，而不需要改动库存和单据流转代码。
-const workflowActionRoles = {
-  sales_submit: ["admin", "sales", "coordinator"],
-  sales_approve: ["admin", "leader", "coordinator"],
-  inventory_check: ["admin", "sales", "coordinator", "warehouse"],
-  purchase_technical_confirm: ["admin", "technician", "trainer"],
-  purchase_approve: ["admin", "purchase"],
-  purchase_mark_transit: ["admin", "purchase"],
-  purchase_receive: ["admin", "purchase", "warehouse"],
-  delivery_create: ["admin", "sales", "coordinator", "warehouse"],
-  delivery_outbound: ["admin", "warehouse"],
-  delivery_dispatch: ["admin", "warehouse", "sales", "coordinator"],
-  delivery_sign: ["admin", "warehouse", "sales", "coordinator"],
-  delivery_accept: ["admin", "warehouse", "sales", "coordinator", "technician", "trainer"],
 };
 
 const modules = [
