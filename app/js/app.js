@@ -1549,7 +1549,8 @@ function renderField(moduleId, [key, label, type, required, options], record) {
   } else if (type === "textarea") {
     input = `<textarea ${common}>${escapeHtml(value)}</textarea>`;
   } else {
-    input = `<input ${common} type="${type}" value="${escapeHtml(value)}" />`;
+    const numberRules = type === "number" ? `min="${key === "quantity" ? 1 : 0}" step="any"` : "";
+    input = `<input ${common} type="${type}" ${numberRules} value="${escapeHtml(value)}" />`;
   }
   return `<div class="field ${span}"><label>${label}${required ? " *" : ""}</label>${input}</div>`;
 }
@@ -1826,6 +1827,8 @@ function reconcileDeliveryWorkflow(delivery, oldDelivery) {
 }
 
 function saveRecord(moduleId, id, record) {
+  const dataValidation = validateRecordData(moduleId, record);
+  if (!dataValidation.ok) return dataValidation;
   if (moduleId === "deliveries") {
     const item = db.inventory.find((i) => i.id === record.inventoryId);
     const old = id ? db.deliveries.find((d) => d.id === id) : null;
@@ -1891,6 +1894,29 @@ function saveRecord(moduleId, id, record) {
   if (moduleId === "purchases" && oldRecord) reconcilePurchaseWorkflow(record, oldRecord);
   if (moduleId === "deliveries" && oldRecord) reconcileDeliveryWorkflow(record, oldRecord);
   saveData();
+  return { ok: true };
+}
+
+function validateRecordData(moduleId, record) {
+  const positiveKeys = new Set(["quantity"]);
+  for (const [key, label, type, required] of (moduleFields[moduleId] || [])) {
+    const value = record[key];
+    if (required && (value === "" || value === null || value === undefined || (typeof value === "string" && !value.trim()))) {
+      return { ok: false, message: `请填写“${label}”` };
+    }
+    if (type === "number" && value !== "" && value !== null && value !== undefined) {
+      const number = Number(value);
+      if (!Number.isFinite(number) || number < 0) return { ok: false, message: `“${label}”不能填写负数或无效数字` };
+      if (positiveKeys.has(key) && number <= 0 && (required || value !== "")) return { ok: false, message: `“${label}”必须大于 0` };
+    }
+  }
+  const returnWorkflowStatuses = new Set(["待收货", "待质检", "维修中", "待换货", "换货待出库", "已退库", "已报废", "已换货"]);
+  if (moduleId === "aftersales" && returnWorkflowStatuses.has(record.status)) {
+    const quantity = Number(record.quantity || 0);
+    if (!record.inventoryId || !Number.isFinite(quantity) || quantity <= 0) {
+      return { ok: false, message: "退库、维修、换货流程必须填写“对应库存”和大于 0 的“涉及数量”" };
+    }
+  }
   return { ok: true };
 }
 
@@ -1965,16 +1991,18 @@ function removeRecord(moduleId, id) {
 
 function applyInventoryChange(itemId, action, quantity, remark, sourceId = "", sourceType = "") {
   const item = db.inventory.find((i) => i.id === itemId);
-  if (!item || !quantity) return;
+  const amount = Number(quantity);
+  if (!item || !Number.isFinite(amount) || amount <= 0) return false;
   const before = Number(item.stock || 0);
-  const after = action === "入库" ? before + quantity : before - quantity;
+  if (action === "出库" && before < amount) return false;
+  const after = action === "入库" ? before + amount : before - amount;
   item.stock = after;
   item.updatedAt = nowIso();
   db.inventoryLogs.unshift({
     id: uid("log"),
     itemId,
     action,
-    quantity,
+    quantity: amount,
     beforeStock: before,
     afterStock: after,
     sourceType: sourceType || (action === "入库" ? "purchase" : "delivery"),
@@ -1984,9 +2012,14 @@ function applyInventoryChange(itemId, action, quantity, remark, sourceId = "", s
     remark,
   });
   logAction(action, "inventory", itemId, remark);
+  return true;
 }
 
 function receivePurchase(purchase) {
+  if (!Number.isFinite(Number(purchase.quantity)) || Number(purchase.quantity) <= 0) {
+    toast("采购数量必须大于 0，不能确认到货入库");
+    return false;
+  }
   const item = ensureInventoryForProduct(purchase.product, purchase.productId, purchase.model);
   if (purchase.inTransitApplied && !purchase.inTransitCleared) {
     item.inTransit = Math.max(0, Number(item.inTransit || 0) - Number(purchase.inTransitQuantity || purchase.quantity || 0));
@@ -2007,6 +2040,7 @@ function receivePurchase(purchase) {
       logAction("purchase_received", "salesOrders", order.id, `关联采购单 ${purchase.code} 已到货入库，订单进入待出库`);
     }
   }
+  return true;
 }
 
 function ensureInventoryForProduct(productName, productId = "", model = "") {
@@ -2105,6 +2139,7 @@ function approveSalesOrder(orderId) {
 function checkSalesOrderInventory(orderId) {
   const order = db.salesOrders.find((item) => item.id === orderId);
   if (!order || order.status !== "待库存确认" || !canWorkflow("inventory_check")) return;
+  if (!Number.isFinite(Number(order.quantity)) || Number(order.quantity) <= 0) return toast("订单数量必须大于 0，请先编辑订单后再检查库存");
   const item = inventoryForProduct(order.product, order.productId, order.model);
   if (item && availableStock(item) >= Number(order.quantity || 0)) {
     linkedToSalesOrder("purchases", order.id)
@@ -2167,7 +2202,7 @@ function openPurchaseApproval(purchaseId) {
 
 function confirmPurchaseOrder(purchase, oldPurchase) {
   if (!purchase.estimatedDate) return { ok: false, message: "请填写预计到货日期后再确认下单" };
-  if (!Number(purchase.quantity || 0)) return { ok: false, message: "采购数量必须大于 0" };
+  if (!Number.isFinite(Number(purchase.quantity)) || Number(purchase.quantity) <= 0) return { ok: false, message: "采购数量必须大于 0" };
   purchase.status = "已下单";
   purchase.approvedBy = state.currentUser.id;
   purchase.approvedAt = nowIso();
@@ -2207,6 +2242,7 @@ function confirmPurchaseTechnical(purchaseId) {
 function markPurchaseInTransit(purchaseId) {
   const purchase = db.purchases.find((item) => item.id === purchaseId);
   if (!purchase || purchase.status !== "已下单" || !canWorkflow("purchase_mark_transit")) return;
+  if (!Number.isFinite(Number(purchase.quantity)) || Number(purchase.quantity) <= 0) return toast("采购数量必须大于 0，不能标记在途");
   purchase.status = "在途";
   purchase.shippedBy = state.currentUser.id;
   purchase.shippedAt = nowIso();
@@ -2226,6 +2262,10 @@ function createDeliveryFromSalesOrder(orderId) {
   }
   if (!canWorkflow("delivery_create")) {
     toast("你没有生成出库单的权限，请联系仓库或管理员");
+    return;
+  }
+  if (!Number.isFinite(Number(order.quantity)) || Number(order.quantity) <= 0) {
+    toast("订单数量必须大于 0，请先编辑订单后再生成出库单");
     return;
   }
   const item = db.inventory.find((inventory) => inventory.id === order.inventoryId)
@@ -2270,6 +2310,7 @@ function createDeliveryFromSalesOrder(orderId) {
 function confirmDeliveryOutbound(deliveryId) {
   const delivery = db.deliveries.find((item) => item.id === deliveryId);
   if (!delivery || delivery.status !== "待出库" || !canWorkflow("delivery_outbound")) return;
+  if (!Number.isFinite(Number(delivery.quantity)) || Number(delivery.quantity) <= 0) return toast("出库数量必须大于 0，请先编辑出库单");
   const item = db.inventory.find((inventory) => inventory.id === delivery.inventoryId);
   if (!item || availableStock(item) < Number(delivery.quantity || 0)) {
     toast("库存不足，无法确认出库");
@@ -2380,6 +2421,8 @@ function startAfterSalesReturn(id) {
 function receiveAfterSalesReturn(id) {
   const record = getAfterSalesReturnRecord(id);
   if (!record || record.status !== "待收货") return;
+  const validation = validateAfterSalesInventory(record);
+  if (!validation.ok) return toast(validation.message);
   record.status = "待质检";
   record.receivedAt = nowIso();
   record.updatedAt = nowIso();
@@ -2525,9 +2568,9 @@ document.addEventListener("click", (event) => {
     const purchase = db.purchases.find((p) => p.id === arrive.dataset.arrive);
     if (!purchase || purchase.status !== "在途" || !canWorkflow("purchase_receive")) return;
     confirmAction("确认到货入库", `确认 ${purchase.code} 已到货并入库吗？确认后库存会自动增加并写入库存流水。`, () => {
+      if (!receivePurchase(purchase)) return;
       purchase.status = "已到货";
       purchase.updatedAt = nowIso();
-      receivePurchase(purchase);
       saveData();
       toast("采购已到货并同步入库");
       render();
