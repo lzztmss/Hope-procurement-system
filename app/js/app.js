@@ -325,10 +325,11 @@ const state = {
   serverUser: null,
   route: "dashboard",
   search: "",
-  statusFilter: "进行中",
+  statusFilter: "全部",
   editing: null,
   confirmAction: null,
   activityOpen: false,
+  activityLimit: 10,
 };
 
 function uid(prefix) {
@@ -582,7 +583,9 @@ function actionName(action) {
 
 function renderActivityPanel() {
   if (!state.activityOpen) return "";
-  const activities = (db.auditLogs || []).slice(0, 10);
+  const allActivities = db.auditLogs || [];
+  const activities = allActivities.slice(0, state.activityLimit);
+  const hasMore = allActivities.length > activities.length;
   return `<section class="activity-panel" aria-label="流程动态">
     <div class="activity-panel-title"><strong>流程动态</strong><span>最近操作</span></div>
     <div class="activity-list">${activities.length ? activities.map((log) => `<article class="activity-item">
@@ -590,6 +593,7 @@ function renderActivityPanel() {
       <p>${escapeHtml(log.detail || "")}</p>
       <time>${escapeHtml(formatDate(log.createdAt))}</time>
     </article>`).join("") : `<p class="compact-note">暂时没有流程动态</p>`}</div>
+    ${hasMore ? `<button class="activity-more-btn" type="button" data-action="load-more-activity">加载更多</button>` : ""}
   </section>`;
 }
 
@@ -923,7 +927,7 @@ function renderApp() {
           </div>
           <div class="topbar-actions">
             <div class="activity-wrap">
-              <button class="bell-btn" type="button" data-action="toggle-activity" aria-label="查看流程动态" title="流程动态">&#128276;<span class="bell-dot"></span></button>
+              <button class="bell-btn" type="button" data-action="toggle-activity" aria-label="查看流程动态" title="流程动态"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span class="bell-dot"></span></button>
               ${renderActivityPanel()}
             </div>
             <span class="role-pill">${state.currentUser.name} · ${roleName(state.currentUser.role)}</span>
@@ -951,7 +955,7 @@ function bindGlobalActions() {
     btn.addEventListener("click", () => {
       state.route = btn.dataset.route;
       state.search = "";
-      state.statusFilter = "进行中";
+      state.statusFilter = "全部";
       render();
     });
   });
@@ -972,6 +976,11 @@ function bindGlobalActions() {
   });
   document.querySelector('[data-action="toggle-activity"]')?.addEventListener("click", () => {
     state.activityOpen = !state.activityOpen;
+    if (state.activityOpen) state.activityLimit = 10;
+    render();
+  });
+  document.querySelector('[data-action="load-more-activity"]')?.addEventListener("click", () => {
+    state.activityLimit += 10;
     render();
   });
   document.querySelectorAll("[data-create]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.create)));
@@ -1135,9 +1144,7 @@ function renderModule(moduleId) {
   const fields = moduleFields[moduleId] || [];
   let records = listRecords(moduleId);
   const allStatuses = Array.from(new Set(records.map((r) => moduleId === "inventory" ? inventoryStatus(r) : r.status).filter(Boolean)));
-  if (state.statusFilter === "进行中") {
-    records = records.filter((record) => !isArchivedRecord(moduleId, record));
-  } else if (state.statusFilter !== "全部") {
+  if (state.statusFilter !== "全部") {
     records = records.filter((r) => String(r.status || inventoryStatus(r)).includes(state.statusFilter));
   }
   if (state.search) {
@@ -1154,7 +1161,6 @@ function renderModule(moduleId) {
         <div class="panel-tools">
           <input class="search-input" data-search placeholder="搜索客户、产品、负责人、编号" value="${escapeHtml(state.search)}" />
           <select class="filter-select" data-status-filter>
-            <option ${state.statusFilter === "进行中" ? "selected" : ""}>进行中</option>
             <option ${state.statusFilter === "全部" ? "selected" : ""}>全部</option>
             ${allStatuses.map((s) => `<option ${state.statusFilter === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
           </select>
@@ -1177,7 +1183,7 @@ function renderTable(moduleId, records) {
         <tr>${columns.map((key) => `<th>${columnLabels[key] || key}</th>`).join("")}<th>操作</th></tr>
       </thead>
       <tbody>
-        ${records.length ? records.map((record) => `<tr>
+        ${records.length ? records.map((record) => `<tr class="${isArchivedRecord(moduleId, record) ? "is-archived" : ""}">
           ${columns.map((key) => renderCell(moduleId, record, key)).join("")}
           <td>${renderActions(moduleId, record)}</td>
         </tr>`).join("") : `<tr><td colspan="${columns.length + 1}" class="empty">暂无数据</td></tr>`}
@@ -1202,7 +1208,7 @@ function renderCards(moduleId, records) {
     ${records.length ? records.map((record) => {
       const title = record.customer || record.name || record.product || record.title || record.code || record.sku;
       const status = moduleId === "inventory" ? inventoryStatus(record) : record.status;
-      return `<article class="record-card">
+      return `<article class="record-card ${isArchivedRecord(moduleId, record) ? "is-archived" : ""}">
         <h3>${escapeHtml(title)}</h3>
         <div class="record-meta">
           <span>编号：${escapeHtml(record.code || record.sku || record.id)}</span>
