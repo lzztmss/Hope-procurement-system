@@ -13,6 +13,12 @@ export const workflowActions = [
   { id: "delivery_dispatch", group: "出库交付", label: "标记配送中", defaultRoles: ["admin", "warehouse", "sales", "coordinator"] },
   { id: "delivery_sign", group: "出库交付", label: "确认客户签收", defaultRoles: ["admin", "warehouse", "sales", "coordinator"] },
   { id: "delivery_accept", group: "出库交付", label: "确认交付验收", defaultRoles: ["admin", "warehouse", "sales", "coordinator", "technician", "trainer"] },
+  { id: "aftersales_start_return", group: "售后退库", label: "发起退库处理", defaultRoles: ["admin", "aftersales", "technician", "coordinator"] },
+  { id: "aftersales_receive_return", group: "售后退库", label: "确认售后收货", defaultRoles: ["admin", "warehouse", "aftersales"] },
+  { id: "aftersales_quality_return", group: "售后退库", label: "质检合格并入库", defaultRoles: ["admin", "warehouse", "technician"] },
+  { id: "aftersales_repair", group: "售后退库", label: "转维修或维修完成", defaultRoles: ["admin", "technician", "aftersales"] },
+  { id: "aftersales_scrap", group: "售后退库", label: "确认报废", defaultRoles: ["admin", "warehouse", "technician"] },
+  { id: "aftersales_replacement_delivery", group: "售后换货", label: "生成换货出库单", defaultRoles: ["admin", "aftersales", "warehouse", "sales", "coordinator"] },
 ];
 
 export const workflowActionRoles = Object.fromEntries(

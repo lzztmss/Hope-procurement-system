@@ -217,7 +217,9 @@ const moduleFields = {
     ["owner", "一级处理人", "user", true],
     ["techOwner", "二级技术人", "user", false],
     ["supplierId", "厂家联系人", "supplier", false],
-    ["status", "当前状态", "select", true, ["待受理", "处理中", "待技术判断", "待厂家反馈", "待客户反馈", "已解决", "已关闭"]],
+    ["quantity", "涉及数量", "number", false],
+    ["inventoryId", "对应库存", "inventory", false],
+    ["status", "当前状态", "select", true, ["待受理", "处理中", "待技术判断", "待厂家反馈", "待客户反馈", "待收货", "待质检", "维修中", "待换货", "换货待出库", "已退库", "已报废", "已换货", "已解决", "已关闭"]],
     ["nextAction", "下一步", "textarea", false],
     ["promiseAt", "承诺反馈时间", "datetime-local", false],
     ["closedAt", "关闭日期", "date", false],
@@ -745,7 +747,7 @@ function isArchivedRecord(moduleId, record) {
   if (moduleId === "purchases") return ["已到货", "已取消"].includes(status);
   if (moduleId === "deliveries") return ["已验收", "已取消"].includes(status);
   if (moduleId === "trainings") return status === "已完成";
-  if (moduleId === "aftersales") return ["已解决", "已关闭"].includes(status);
+  if (moduleId === "aftersales") return ["已退库", "已报废", "已换货", "已解决", "已关闭"].includes(status);
   if (moduleId === "notices") return status === "已完成";
   return false;
 }
@@ -1064,6 +1066,13 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-create-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认生成出库单", "确认后将从该销售订单带入客户、产品和数量，生成待出库单。", () => createDeliveryFromSalesOrder(btn.dataset.createDelivery))));
   document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认出库", "确认后将正式扣减库存，操作会写入库存流水。", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound))));
   document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => openTrainingFromDelivery(btn.dataset.createTraining)));
+  document.querySelectorAll("[data-start-return]").forEach((btn) => btn.addEventListener("click", () => confirmAction("发起退库处理", "确认客户将设备退回仓库处理吗？下一步由仓库确认收货。", () => startAfterSalesReturn(btn.dataset.startReturn))));
+  document.querySelectorAll("[data-receive-return]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认售后收货", "确认仓库已收到退回设备吗？确认后等待质检决定入库、维修或报废。", () => receiveAfterSalesReturn(btn.dataset.receiveReturn))));
+  document.querySelectorAll("[data-return-to-stock]").forEach((btn) => btn.addEventListener("click", () => confirmAction("质检合格入库", "确认设备质检合格并加回可用库存吗？库存流水会记录来源售后单。", () => returnAfterSalesToStock(btn.dataset.returnToStock))));
+  document.querySelectorAll("[data-return-repair]").forEach((btn) => btn.addEventListener("click", () => confirmAction("转维修", "确认该设备不能直接入库，需要进入维修处理吗？", () => setAfterSalesDisposition(btn.dataset.returnRepair, "维修中", "已转维修"))));
+  document.querySelectorAll("[data-repair-to-stock]").forEach((btn) => btn.addEventListener("click", () => confirmAction("维修完成入库", "确认设备维修完成并加回可用库存吗？", () => returnAfterSalesToStock(btn.dataset.repairToStock))));
+  document.querySelectorAll("[data-return-scrap]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认报废", "确认该设备无法修复，按报废处理吗？此操作不会增加库存。", () => setAfterSalesDisposition(btn.dataset.returnScrap, "已报废", "已确认报废"))));
+  document.querySelectorAll("[data-create-replacement]").forEach((btn) => btn.addEventListener("click", () => confirmAction("生成换货出库单", "确认生成一张待出库的售后换货单吗？确认出库时才会扣减库存。", () => createReplacementDelivery(btn.dataset.createReplacement))));
   document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => openPurchaseApproval(btn.dataset.approvePurchase)));
   document.querySelectorAll("[data-confirm-tech-purchase]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认技术通过", "确认产品规格、技术条件已核对无误吗？确认后采购单进入待采购审批。", () => confirmPurchaseTechnical(btn.dataset.confirmTechPurchase))));
   document.querySelectorAll("[data-mark-purchase-transit]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认标记在途", "确认供应商已发货、采购单正在运输途中吗？", () => markPurchaseInTransit(btn.dataset.markPurchaseTransit))));
@@ -1306,6 +1315,26 @@ function renderActions(moduleId, record) {
     }
     if (record.status === "待出库" && canWorkflow("delivery_create")) {
       buttons.push(`<button class="primary-btn" data-create-delivery="${record.id}">生成出库单</button>`);
+    }
+  }
+  if (moduleId === "aftersales") {
+    if (["退货", "故障", "换货"].includes(record.type) && ["待受理", "处理中", "待技术判断", "待厂家反馈"].includes(record.status) && canWorkflow("aftersales_start_return")) {
+      buttons.push(`<button class="primary-btn" data-start-return="${record.id}">发起退库处理</button>`);
+    }
+    if (record.status === "待收货" && canWorkflow("aftersales_receive_return")) {
+      buttons.push(`<button class="primary-btn" data-receive-return="${record.id}">确认收货</button>`);
+    }
+    if (record.status === "待质检") {
+      if (canWorkflow("aftersales_quality_return")) buttons.push(`<button class="primary-btn" data-return-to-stock="${record.id}">质检合格入库</button>`);
+      if (canWorkflow("aftersales_repair")) buttons.push(`<button class="ghost-btn" data-return-repair="${record.id}">转维修</button>`);
+      if (canWorkflow("aftersales_scrap")) buttons.push(`<button class="danger-btn" data-return-scrap="${record.id}">确认报废</button>`);
+    }
+    if (record.status === "维修中") {
+      if (canWorkflow("aftersales_repair")) buttons.push(`<button class="primary-btn" data-repair-to-stock="${record.id}">维修完成入库</button>`);
+      if (canWorkflow("aftersales_scrap")) buttons.push(`<button class="danger-btn" data-return-scrap="${record.id}">确认报废</button>`);
+    }
+    if (record.status === "待换货" && canWorkflow("aftersales_replacement_delivery")) {
+      buttons.push(`<button class="primary-btn" data-create-replacement="${record.id}">生成换货出库单</button>`);
     }
   }
   if (moduleId === "inventory" && can("inventory", "edit")) {
@@ -2233,6 +2262,13 @@ function confirmDeliveryOutbound(deliveryId) {
     order.status = "已出库";
     order.updatedAt = nowIso();
   }
+  const afterSales = db.aftersales.find((candidate) => candidate.id === delivery.sourceAfterSalesId);
+  if (afterSales) {
+    afterSales.status = "已换货";
+    afterSales.result = `换货设备已出库，出库单 ${delivery.code}`;
+    afterSales.updatedAt = nowIso();
+    logAction("replacement_outbound", "aftersales", afterSales.id, `换货出库单 ${delivery.code} 已确认出库`);
+  }
   logAction("outbound", "deliveries", delivery.id, "确认出库并扣减库存");
   saveData();
   toast("已出库，库存已自动扣减");
@@ -2293,6 +2329,103 @@ function openTrainingFromDelivery(deliveryId) {
   };
   document.body.insertAdjacentHTML("beforeend", renderModal("trainings", training, false));
   bindModal();
+}
+
+function getAfterSalesReturnRecord(id) {
+  return db.aftersales.find((record) => record.id === id) || null;
+}
+
+function validateAfterSalesInventory(record) {
+  const quantity = Number(record.quantity || 0);
+  const item = db.inventory.find((inventory) => inventory.id === record.inventoryId);
+  if (!item || quantity <= 0) return { ok: false, message: "请先编辑售后工单，填写对应库存和涉及数量后再处理退库。" };
+  return { ok: true, item, quantity };
+}
+
+function startAfterSalesReturn(id) {
+  const record = getAfterSalesReturnRecord(id);
+  const validation = record ? validateAfterSalesInventory(record) : { ok: false, message: "售后工单不存在" };
+  if (!validation.ok) return toast(validation.message);
+  record.status = "待收货";
+  record.returnStartedAt = nowIso();
+  record.updatedAt = nowIso();
+  logAction("return_start", "aftersales", record.id, `售后单 ${record.code} 已发起退库，等待仓库收货`);
+  saveData();
+  toast("已发起退库处理，等待仓库确认收货");
+  render();
+}
+
+function receiveAfterSalesReturn(id) {
+  const record = getAfterSalesReturnRecord(id);
+  if (!record || record.status !== "待收货") return;
+  record.status = "待质检";
+  record.receivedAt = nowIso();
+  record.updatedAt = nowIso();
+  logAction("return_receive", "aftersales", record.id, `售后单 ${record.code} 已收货，等待质检决定`);
+  saveData();
+  toast("已确认收货，请进行质检处理");
+  render();
+}
+
+function setAfterSalesDisposition(id, status, message) {
+  const record = getAfterSalesReturnRecord(id);
+  if (!record) return;
+  record.status = status;
+  record.result = message;
+  record.updatedAt = nowIso();
+  logAction(status === "已报废" ? "scrap" : "repair", "aftersales", record.id, `售后单 ${record.code}${message}`);
+  saveData();
+  toast(message);
+  render();
+}
+
+function returnAfterSalesToStock(id) {
+  const record = getAfterSalesReturnRecord(id);
+  const validation = record ? validateAfterSalesInventory(record) : { ok: false, message: "售后工单不存在" };
+  if (!validation.ok) return toast(validation.message);
+  if (record.returnStockApplied) return toast("该售后单已完成退库，不能重复增加库存");
+  applyInventoryChange(validation.item.id, "入库", validation.quantity, `售后退库 ${record.code}`, record.id, "aftersales");
+  record.returnStockApplied = true;
+  record.returnedAt = nowIso();
+  record.status = record.type === "换货" ? "待换货" : "已退库";
+  record.result = record.type === "换货" ? "旧设备已退库，等待生成换货出库单" : "质检合格，已退回库存";
+  record.updatedAt = nowIso();
+  logAction("return_stock", "aftersales", record.id, `售后单 ${record.code} 已入库 ${validation.quantity} 件`);
+  saveData();
+  toast(record.type === "换货" ? "旧设备已退库，可生成换货出库单" : "质检合格，已退回库存");
+  render();
+}
+
+function createReplacementDelivery(id) {
+  const record = getAfterSalesReturnRecord(id);
+  const validation = record ? validateAfterSalesInventory(record) : { ok: false, message: "售后工单不存在" };
+  if (!validation.ok) return toast(validation.message);
+  if (db.deliveries.some((delivery) => delivery.sourceAfterSalesId === record.id && delivery.status !== "已取消")) return toast("该售后单已生成换货出库单");
+  if (availableStock(validation.item) < validation.quantity) return toast(`库存不足：${validation.item.name} 可用 ${availableStock(validation.item)}，无法换货出库 ${validation.quantity}`);
+  const delivery = getDefaultRecord("deliveries");
+  Object.assign(delivery, {
+    project: record.customer,
+    type: "售后换货",
+    inventoryId: validation.item.id,
+    quantity: validation.quantity,
+    receiver: record.customer,
+    owner: record.owner,
+    tested: "是",
+    systemReady: "不适用",
+    training: "不需要",
+    status: "待出库",
+    sourceAfterSalesId: record.id,
+    remark: `由售后工单 ${record.code} 生成换货出库`,
+  });
+  db.deliveries.unshift(delivery);
+  record.replacementDeliveryId = delivery.id;
+  record.status = "换货待出库";
+  record.updatedAt = nowIso();
+  logAction("replacement_create", "aftersales", record.id, `已生成换货出库单 ${delivery.code}`);
+  logAction("create", "deliveries", delivery.id, `由售后工单 ${record.code} 生成换货出库单`);
+  saveData();
+  toast(`换货出库单 ${delivery.code} 已生成，等待仓库确认出库`);
+  render();
 }
 
 function adjustStock(itemId, action) {
