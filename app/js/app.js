@@ -344,7 +344,7 @@ function formatDate(value) {
   if (!value) return "-";
   if (typeof value !== "string") return String(value);
   // 数据库存的是 UTC 时间；页面统一按中国时区展示，避免出现相差 8 小时的操作记录。
-  if (value.includes("T")) {
+  if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
     const date = new Date(value);
     if (!Number.isNaN(date.getTime())) {
       return new Intl.DateTimeFormat("sv-SE", {
