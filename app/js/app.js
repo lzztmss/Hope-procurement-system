@@ -68,6 +68,23 @@ const roles = {
   },
 };
 
+// 流程动作与角色分开定义。后续权限后台只需给员工写入 workflowActions，
+// 就可覆盖这里的默认角色规则，而不需要改动库存和单据流转代码。
+const workflowActionRoles = {
+  sales_submit: ["admin", "sales", "coordinator"],
+  sales_approve: ["admin", "leader", "coordinator"],
+  inventory_check: ["admin", "sales", "coordinator", "warehouse"],
+  purchase_technical_confirm: ["admin", "technician", "trainer"],
+  purchase_approve: ["admin", "purchase"],
+  purchase_mark_transit: ["admin", "purchase"],
+  purchase_receive: ["admin", "purchase", "warehouse"],
+  delivery_create: ["admin", "sales", "coordinator", "warehouse"],
+  delivery_outbound: ["admin", "warehouse"],
+  delivery_dispatch: ["admin", "warehouse", "sales", "coordinator"],
+  delivery_sign: ["admin", "warehouse", "sales", "coordinator"],
+  delivery_accept: ["admin", "warehouse", "sales", "coordinator", "technician", "trainer"],
+};
+
 const modules = [
   { id: "dashboard", name: "工作台", icon: "▦", desc: "领导看板、风险预警和待办汇总" },
   { id: "leads", name: "线索台账", icon: "◎", desc: "客户线索、合作意向、项目机会" },
@@ -653,6 +670,21 @@ function can(moduleId, action = "view") {
   return role.modules.includes(moduleId) && role.actions.includes(action);
 }
 
+function canWorkflow(action) {
+  const user = state.currentUser;
+  if (!user) return false;
+  if (Array.isArray(user.workflowActions)) return user.workflowActions.includes("*") || user.workflowActions.includes(action);
+  return (workflowActionRoles[action] || []).includes(user.role);
+}
+
+function canEditWorkflowRecord(moduleId, record) {
+  if (!record) return true;
+  if (moduleId === "salesOrders") return record.status === "草稿";
+  if (moduleId === "purchases") return ["待采购审批", "待技术确认", "待采购确认", "异常"].includes(record.status);
+  if (moduleId === "deliveries") return record.status === "待出库";
+  return true;
+}
+
 function visibleModules() {
   return modules.filter((m) => currentRole().modules.includes(m.id));
 }
@@ -1007,6 +1039,11 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认出库", "确认后将正式扣减库存，操作会写入库存流水。", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound))));
   document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => openTrainingFromDelivery(btn.dataset.createTraining)));
   document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => openPurchaseApproval(btn.dataset.approvePurchase)));
+  document.querySelectorAll("[data-confirm-tech-purchase]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认技术通过", "确认产品规格、技术条件已核对无误吗？确认后采购单进入待采购审批。", () => confirmPurchaseTechnical(btn.dataset.confirmTechPurchase))));
+  document.querySelectorAll("[data-mark-purchase-transit]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认标记在途", "确认供应商已发货、采购单正在运输途中吗？", () => markPurchaseInTransit(btn.dataset.markPurchaseTransit))));
+  document.querySelectorAll("[data-dispatch-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认配送中", "确认货物已交付物流或正在配送吗？", () => advanceDelivery(btn.dataset.dispatchDelivery, "已出库", "配送中", "delivery_dispatch", "已标记配送中"))));
+  document.querySelectorAll("[data-sign-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认签收", "确认客户已签收本次交付吗？", () => advanceDelivery(btn.dataset.signDelivery, "配送中", "已签收", "delivery_sign", "已确认签收"))));
+  document.querySelectorAll("[data-accept-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认验收", "确认本次交付已验收完成吗？", () => advanceDelivery(btn.dataset.acceptDelivery, "已签收", "已验收", "delivery_accept", "已确认验收"))));
   document.querySelector("[data-export]")?.addEventListener("click", () => exportCsv(state.route));
   const search = document.querySelector("[data-search]");
   if (search) {
@@ -1232,16 +1269,16 @@ function renderActions(moduleId, record) {
     buttons.push(`<button class="primary-btn" data-create-order="${record.id}">生成销售订单</button>`);
   }
   if (moduleId === "salesOrders") {
-    if (record.status === "草稿" && can("salesOrders", "edit")) {
+    if (record.status === "草稿" && canWorkflow("sales_submit")) {
       buttons.push(`<button class="primary-btn" data-submit-order="${record.id}">提交审批</button>`);
     }
     if (record.status === "待销售审批" && canApproveSalesOrder()) {
       buttons.push(`<button class="primary-btn" data-approve-order="${record.id}">审批通过</button>`);
     }
-    if (record.status === "待库存确认" && can("salesOrders", "edit")) {
+    if (record.status === "待库存确认" && canWorkflow("inventory_check")) {
       buttons.push(`<button class="primary-btn" data-check-order="${record.id}">检查库存</button>`);
     }
-    if (record.status === "待出库" && can("deliveries", "create")) {
+    if (record.status === "待出库" && canWorkflow("delivery_create")) {
       buttons.push(`<button class="primary-btn" data-create-delivery="${record.id}">生成出库单</button>`);
     }
   }
@@ -1252,11 +1289,26 @@ function renderActions(moduleId, record) {
   if (moduleId === "purchases" && canApprovePurchase() && record.status === "待采购审批") {
     buttons.push(`<button class="primary-btn" data-approve-purchase="${record.id}">审批通过并下单</button>`);
   }
-  if (moduleId === "purchases" && can("purchases", "edit") && ["已下单", "在途"].includes(record.status)) {
+  if (moduleId === "purchases" && record.status === "待技术确认" && canWorkflow("purchase_technical_confirm")) {
+    buttons.push(`<button class="primary-btn" data-confirm-tech-purchase="${record.id}">技术确认通过</button>`);
+  }
+  if (moduleId === "purchases" && record.status === "已下单" && canWorkflow("purchase_mark_transit")) {
+    buttons.push(`<button class="primary-btn" data-mark-purchase-transit="${record.id}">标记在途</button>`);
+  }
+  if (moduleId === "purchases" && record.status === "在途" && canWorkflow("purchase_receive")) {
     buttons.push(`<button class="primary-btn" data-arrive="${record.id}">确认到货入库</button>`);
   }
-  if (moduleId === "deliveries" && can("deliveries", "edit") && record.status === "待出库") {
+  if (moduleId === "deliveries" && record.status === "待出库" && canWorkflow("delivery_outbound")) {
     buttons.push(`<button class="primary-btn" data-confirm-outbound="${record.id}">确认出库</button>`);
+  }
+  if (moduleId === "deliveries" && record.status === "已出库" && canWorkflow("delivery_dispatch")) {
+    buttons.push(`<button class="primary-btn" data-dispatch-delivery="${record.id}">标记配送中</button>`);
+  }
+  if (moduleId === "deliveries" && record.status === "配送中" && canWorkflow("delivery_sign")) {
+    buttons.push(`<button class="primary-btn" data-sign-delivery="${record.id}">确认签收</button>`);
+  }
+  if (moduleId === "deliveries" && record.status === "已签收" && canWorkflow("delivery_accept")) {
+    buttons.push(`<button class="primary-btn" data-accept-delivery="${record.id}">确认验收</button>`);
   }
   if (moduleId === "deliveries" && can("trainings", "create") && ["已出库", "配送中", "已签收", "已验收"].includes(record.status)) {
     buttons.push(`<button class="primary-btn" data-create-training="${record.id}">生成培训验收</button>`);
@@ -1265,7 +1317,7 @@ function renderActions(moduleId, record) {
   if (moduleId !== "inventory" && can(moduleId, "view")) {
     buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-view="${record.id}">查看</button>`);
   }
-  if (can(moduleId, "edit")) buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-edit="${record.id}">编辑</button>`);
+  if (can(moduleId, "edit") && canEditWorkflowRecord(moduleId, record)) buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-edit="${record.id}">编辑</button>`);
   if (can(moduleId, "delete") && ["leads", "salesOrders", "purchases", "deliveries"].includes(moduleId)) {
     const label = moduleId === "leads" ? "关闭线索" : "作废";
     buttons.push(`<button class="danger-btn" data-module="${moduleId}" data-delete="${record.id}">${label}</button>`);
@@ -1323,6 +1375,10 @@ function openForm(moduleId, id = null) {
   if (!id && !can(moduleId, "create")) return;
   const collection = collectionFor(moduleId);
   const record = id ? { ...(db[collection].find((r) => r.id === id) || {}) } : getDefaultRecord(moduleId);
+  if (id && !canEditWorkflowRecord(moduleId, record)) {
+    toast("该单据已进入流程，不能直接编辑关键资料；请使用对应的流程动作或变更流程处理");
+    return;
+  }
   state.editing = { moduleId, id, record };
   document.body.insertAdjacentHTML("beforeend", renderModal(moduleId, record, Boolean(id)));
   bindModal();
@@ -1381,7 +1437,9 @@ function renderField(moduleId, [key, label, type, required, options], record) {
   const common = `name="${key}" ${requiredAttr}`;
   const span = type === "textarea" ? "span-2" : "";
   let input = "";
-  if (type === "select") {
+  if (type === "select" && key === "status" && ["salesOrders", "purchases", "deliveries"].includes(moduleId)) {
+    input = `<input type="hidden" name="${key}" value="${escapeHtml(value)}" /><div class="field-readonly"><span class="status ${statusClass(value)}">${escapeHtml(value || "-")}</span><small>状态由流程按钮自动推进</small></div>`;
+  } else if (type === "select") {
     const allowedOptions = key === "status" ? allowedWorkflowStatusOptions(moduleId, value, options) : options;
     input = `<select ${common}>${allowedOptions.map((op) => `<option ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
   } else if (type === "product") {
@@ -1822,11 +1880,11 @@ function ensureInventoryForProduct(productName, productId = "", model = "") {
 }
 
 function canApprovePurchase() {
-  return ["admin", "purchase"].includes(state.currentUser?.role);
+  return canWorkflow("purchase_approve");
 }
 
 function canApproveSalesOrder() {
-  return ["admin", "leader", "coordinator"].includes(state.currentUser?.role);
+  return canWorkflow("sales_approve");
 }
 
 function openSalesOrderFromLead(leadId) {
@@ -1863,7 +1921,7 @@ function openSalesOrderFromLead(leadId) {
 
 function submitSalesOrderForApproval(orderId) {
   const order = db.salesOrders.find((item) => item.id === orderId);
-  if (!order || order.status !== "草稿") return;
+  if (!order || order.status !== "草稿" || !canWorkflow("sales_submit")) return;
   order.status = "待销售审批";
   order.submittedBy = state.currentUser.id;
   order.submittedAt = nowIso();
@@ -1889,7 +1947,7 @@ function approveSalesOrder(orderId) {
 
 function checkSalesOrderInventory(orderId) {
   const order = db.salesOrders.find((item) => item.id === orderId);
-  if (!order) return;
+  if (!order || order.status !== "待库存确认" || !canWorkflow("inventory_check")) return;
   const item = inventoryForProduct(order.product, order.productId, order.model);
   if (item && availableStock(item) >= Number(order.quantity || 0)) {
     linkedToSalesOrder("purchases", order.id)
@@ -1976,9 +2034,35 @@ function confirmPurchaseOrder(purchase, oldPurchase) {
   return { ok: true };
 }
 
+function confirmPurchaseTechnical(purchaseId) {
+  const purchase = db.purchases.find((item) => item.id === purchaseId);
+  if (!purchase || purchase.status !== "待技术确认" || !canWorkflow("purchase_technical_confirm")) return;
+  purchase.status = "待采购审批";
+  purchase.techConfirmedBy = state.currentUser.id;
+  purchase.techConfirmedAt = nowIso();
+  purchase.updatedAt = nowIso();
+  logAction("technical_confirm", "purchases", purchase.id, "技术确认通过，等待采购审批");
+  saveData();
+  toast("技术确认通过，采购单已进入待采购审批");
+  render();
+}
+
+function markPurchaseInTransit(purchaseId) {
+  const purchase = db.purchases.find((item) => item.id === purchaseId);
+  if (!purchase || purchase.status !== "已下单" || !canWorkflow("purchase_mark_transit")) return;
+  purchase.status = "在途";
+  purchase.shippedBy = state.currentUser.id;
+  purchase.shippedAt = nowIso();
+  purchase.updatedAt = nowIso();
+  logAction("purchase_transit", "purchases", purchase.id, `已标记在途，预计到货 ${purchase.estimatedDate || purchase.lockedDate || "待确认"}`);
+  saveData();
+  toast("采购单已标记在途，等待确认到货入库");
+  render();
+}
+
 function createDeliveryFromSalesOrder(orderId) {
   const order = db.salesOrders.find((item) => item.id === orderId);
-  if (!order) return;
+  if (!order || order.status !== "待出库" || !canWorkflow("delivery_create")) return;
   const item = inventoryForProduct(order.product, order.productId, order.model);
   if (!item || availableStock(item) < Number(order.quantity || 0)) {
     toast("库存已变化，请重新检查库存");
@@ -2015,7 +2099,7 @@ function createDeliveryFromSalesOrder(orderId) {
 
 function confirmDeliveryOutbound(deliveryId) {
   const delivery = db.deliveries.find((item) => item.id === deliveryId);
-  if (!delivery || delivery.status !== "待出库") return;
+  if (!delivery || delivery.status !== "待出库" || !canWorkflow("delivery_outbound")) return;
   const item = db.inventory.find((inventory) => inventory.id === delivery.inventoryId);
   if (!item || availableStock(item) < Number(delivery.quantity || 0)) {
     toast("库存不足，无法确认出库");
@@ -2033,6 +2117,28 @@ function confirmDeliveryOutbound(deliveryId) {
   logAction("outbound", "deliveries", delivery.id, "确认出库并扣减库存");
   saveData();
   toast("已出库，库存已自动扣减");
+  render();
+}
+
+function advanceDelivery(deliveryId, expectedStatus, nextStatus, action, message) {
+  const permission = ({ delivery_dispatch: "delivery_dispatch", delivery_sign: "delivery_sign", delivery_accept: "delivery_accept" })[action];
+  const delivery = db.deliveries.find((item) => item.id === deliveryId);
+  if (!delivery || delivery.status !== expectedStatus || !canWorkflow(permission)) return;
+  delivery.status = nextStatus;
+  delivery.updatedAt = nowIso();
+  if (nextStatus === "已签收") delivery.signedAt = nowIso();
+  if (nextStatus === "已验收") delivery.acceptedAt = nowIso();
+  if (nextStatus === "已验收") {
+    const order = db.salesOrders.find((item) => item.id === delivery.sourceSalesOrderId);
+    if (order && order.status === "已出库") {
+      order.status = "已完成";
+      order.updatedAt = nowIso();
+      logAction("complete", "salesOrders", order.id, `关联出库单 ${delivery.code} 已验收，订单完成`);
+    }
+  }
+  logAction(action, "deliveries", delivery.id, message);
+  saveData();
+  toast(message);
   render();
 }
 
@@ -2115,7 +2221,7 @@ document.addEventListener("click", (event) => {
   const arrive = event.target.closest("[data-arrive]");
   if (arrive) {
     const purchase = db.purchases.find((p) => p.id === arrive.dataset.arrive);
-    if (!purchase) return;
+    if (!purchase || purchase.status !== "在途" || !canWorkflow("purchase_receive")) return;
     confirmAction("确认到货入库", `确认 ${purchase.code} 已到货并入库吗？确认后库存会自动增加并写入库存流水。`, () => {
       purchase.status = "已到货";
       purchase.updatedAt = nowIso();

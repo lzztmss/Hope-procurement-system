@@ -603,6 +603,22 @@ tbody tr:nth-child(even) td {
   grid-column: span 2;
 }
 
+.field-readonly {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.field-readonly small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
