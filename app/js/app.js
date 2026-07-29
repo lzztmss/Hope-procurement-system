@@ -2062,10 +2062,23 @@ function markPurchaseInTransit(purchaseId) {
 
 function createDeliveryFromSalesOrder(orderId) {
   const order = db.salesOrders.find((item) => item.id === orderId);
-  if (!order || order.status !== "待出库" || !canWorkflow("delivery_create")) return;
-  const item = inventoryForProduct(order.product, order.productId, order.model);
-  if (!item || availableStock(item) < Number(order.quantity || 0)) {
-    toast("库存已变化，请重新检查库存");
+  if (!order) return;
+  if (order.status !== "待出库") {
+    toast(`当前订单状态为“${order.status}”，暂不能生成出库单`);
+    return;
+  }
+  if (!canWorkflow("delivery_create")) {
+    toast("你没有生成出库单的权限，请联系仓库或管理员");
+    return;
+  }
+  const item = db.inventory.find((inventory) => inventory.id === order.inventoryId)
+    || inventoryForProduct(order.product, order.productId, order.model);
+  if (!item) {
+    toast(`未找到“${order.product}”对应库存，请先重新检查库存`);
+    return;
+  }
+  if (availableStock(item) < Number(order.quantity || 0)) {
+    toast(`库存不足：${item.name} 当前可用 ${availableStock(item)}，订单需要 ${order.quantity}；请重新检查库存或走采购流程`);
     return;
   }
   const existing = db.deliveries.find((delivery) => delivery.sourceSalesOrderId === order.id && !["异常", "已取消"].includes(delivery.status));
