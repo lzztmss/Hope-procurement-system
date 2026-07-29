@@ -325,7 +325,7 @@ const state = {
   serverUser: null,
   route: "dashboard",
   search: "",
-  statusFilter: "全部",
+  statusFilter: "进行中",
   editing: null,
   confirmAction: null,
   activityOpen: false,
@@ -342,6 +342,21 @@ function nowIso() {
 function formatDate(value) {
   if (!value) return "-";
   if (typeof value !== "string") return String(value);
+  // 数据库存的是 UTC 时间；页面统一按中国时区展示，避免出现相差 8 小时的操作记录。
+  if (value.includes("T")) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "Asia/Shanghai",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).format(date);
+    }
+  }
   return value.replace("T", " ").slice(0, 16);
 }
 
@@ -664,6 +679,18 @@ function listRecords(moduleId) {
   return source.filter(canSeeRecord);
 }
 
+function isArchivedRecord(moduleId, record) {
+  const status = record.status || "";
+  if (moduleId === "leads") return status === "已关闭";
+  if (moduleId === "salesOrders") return ["已完成", "已取消"].includes(status);
+  if (moduleId === "purchases") return ["已到货", "已取消"].includes(status);
+  if (moduleId === "deliveries") return ["已验收", "已取消"].includes(status);
+  if (moduleId === "trainings") return status === "已完成";
+  if (moduleId === "aftersales") return ["已解决", "已关闭"].includes(status);
+  if (moduleId === "notices") return status === "已完成";
+  return false;
+}
+
 function statusClass(value) {
   const risk = ["异常", "紧急", "缺货", "超领", "已取消", "暂停/丢单", "待受理"];
   const warn = ["低于安全库存", "待技术确认", "待采购确认", "在途", "待客户反馈", "待报价", "待投标", "待厂家反馈", "待技术判断", "处理中", "配送中", "执行中", "待同步"];
@@ -924,7 +951,7 @@ function bindGlobalActions() {
     btn.addEventListener("click", () => {
       state.route = btn.dataset.route;
       state.search = "";
-      state.statusFilter = "全部";
+      state.statusFilter = "进行中";
       render();
     });
   });
@@ -1107,14 +1134,16 @@ function renderModule(moduleId) {
   const module = modules.find((m) => m.id === moduleId);
   const fields = moduleFields[moduleId] || [];
   let records = listRecords(moduleId);
-  if (state.statusFilter !== "全部") {
+  const allStatuses = Array.from(new Set(records.map((r) => moduleId === "inventory" ? inventoryStatus(r) : r.status).filter(Boolean)));
+  if (state.statusFilter === "进行中") {
+    records = records.filter((record) => !isArchivedRecord(moduleId, record));
+  } else if (state.statusFilter !== "全部") {
     records = records.filter((r) => String(r.status || inventoryStatus(r)).includes(state.statusFilter));
   }
   if (state.search) {
     const needle = state.search.toLowerCase();
     records = records.filter((r) => JSON.stringify(r).toLowerCase().includes(needle) || fields.some(([key]) => String(fieldValue(moduleId, r, key)).toLowerCase().includes(needle)));
   }
-  const statuses = Array.from(new Set(records.map((r) => moduleId === "inventory" ? inventoryStatus(r) : r.status).filter(Boolean)));
   return `
     <section class="panel">
       <div class="panel-header">
@@ -1125,8 +1154,9 @@ function renderModule(moduleId) {
         <div class="panel-tools">
           <input class="search-input" data-search placeholder="搜索客户、产品、负责人、编号" value="${escapeHtml(state.search)}" />
           <select class="filter-select" data-status-filter>
-            <option>全部</option>
-            ${statuses.map((s) => `<option ${state.statusFilter === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
+            <option ${state.statusFilter === "进行中" ? "selected" : ""}>进行中</option>
+            <option ${state.statusFilter === "全部" ? "selected" : ""}>全部</option>
+            ${allStatuses.map((s) => `<option ${state.statusFilter === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
           </select>
           ${can(moduleId, "create") ? `<button class="primary-btn" data-create="${moduleId}">新增</button>` : ""}
           ${can(moduleId, "export") ? `<button class="ghost-btn" data-export="${moduleId}">导出</button>` : ""}
@@ -1225,7 +1255,10 @@ function renderActions(moduleId, record) {
     buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-view="${record.id}">查看</button>`);
   }
   if (can(moduleId, "edit")) buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-edit="${record.id}">编辑</button>`);
-  if (can(moduleId, "delete")) buttons.push(`<button class="danger-btn" data-module="${moduleId}" data-delete="${record.id}">删除</button>`);
+  if (can(moduleId, "delete") && ["leads", "salesOrders", "purchases", "deliveries"].includes(moduleId)) {
+    const label = moduleId === "leads" ? "关闭线索" : "作废";
+    buttons.push(`<button class="danger-btn" data-module="${moduleId}" data-delete="${record.id}">${label}</button>`);
+  }
   return buttons.join("");
 }
 
@@ -1629,10 +1662,27 @@ function saveRecord(moduleId, id, record) {
 }
 
 function removeRecord(moduleId, id) {
-  if (!confirm("确认删除这条记录？")) return;
   const collection = collectionFor(moduleId);
   const record = (db[collection] || []).find((item) => item.id === id);
   if (!record) return;
+  const actionName = moduleId === "leads" ? "关闭线索" : "作废";
+  if (!confirm(`确认${actionName}这条记录？操作会保留业务追溯，不能恢复为彻底删除。`)) return;
+  if (moduleId === "leads") {
+    const linkedOrder = db.salesOrders.find((order) => order.leadId === record.id);
+    if (linkedOrder) {
+      toast(`不能关闭：线索已生成销售订单 ${linkedOrder.code}，请先在销售订单中按流程作废或继续处理`);
+      return;
+    }
+    record.status = "已关闭";
+    record.stage = "暂停/丢单";
+    record.closedAt = nowIso();
+    record.updatedAt = nowIso();
+    logAction("cancel", "leads", id, "线索关闭，未关联销售订单");
+    saveData();
+    toast("线索已关闭，已移至筛选中的完成/关闭记录");
+    render();
+    return;
+  }
   if (moduleId === "salesOrders") {
     const cancelled = { ...record, status: "已取消", updatedAt: nowIso() };
     const validation = validateSalesOrderRollback(cancelled, record);
@@ -1649,13 +1699,13 @@ function removeRecord(moduleId, id) {
     render();
     return;
   }
-  if (moduleId === "purchases" && record.sourceSalesOrderId) {
+  if (moduleId === "purchases") {
     if (!reversiblePurchaseStatuses.includes(record.status)) {
-      toast("该采购单已下单、在途或到货，不能直接删除，请按采购取消或退货流程处理");
+      toast("该采购单已下单、在途或到货，不能直接作废，请按采购取消或退货流程处理");
       return;
     }
     const oldRecord = { ...record };
-    cancelRecord(record, "删除操作改为作废，保留业务追溯");
+    cancelRecord(record, "采购申请作废，保留业务追溯");
     reconcilePurchaseWorkflow(record, oldRecord);
     logAction("cancel", "purchases", id, "删除操作改为作废");
     saveData();
@@ -1663,9 +1713,9 @@ function removeRecord(moduleId, id) {
     render();
     return;
   }
-  if (moduleId === "deliveries" && record.sourceSalesOrderId) {
+  if (moduleId === "deliveries") {
     if (record.status !== "待出库") {
-      toast("该出库单已经影响交付或库存，不能直接删除，请走退库流程");
+      toast("该出库单已经影响交付或库存，不能直接作废，请走退库流程");
       return;
     }
     const oldRecord = { ...record };
@@ -1677,11 +1727,7 @@ function removeRecord(moduleId, id) {
     render();
     return;
   }
-  db[collection] = db[collection].filter((r) => r.id !== id);
-  logAction("delete", moduleId, id, "删除记录");
-  saveData();
-  toast("已删除");
-  render();
+  toast("该模块不提供彻底删除，避免破坏已有业务关联");
 }
 
 function applyInventoryChange(itemId, action, quantity, remark, sourceId = "", sourceType = "") {
