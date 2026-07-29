@@ -627,6 +627,50 @@ tbody tr:nth-child(even) td {
   font-size: 12px;
 }
 
+.permission-editor,
+.permission-readonly {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.permission-editor > p,
+.permission-readonly {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.permission-editor fieldset {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 180px;
+  margin: 0 10px 10px 0;
+  padding: 8px 10px;
+  border: 1px solid #dbe7f0;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.permission-editor legend {
+  padding: 0 4px;
+  color: var(--brand);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.permission-editor label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

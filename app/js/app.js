@@ -257,6 +257,8 @@ const moduleFields = {
     ["role", "角色", "role", true],
     ["status", "账号状态", "select", true, ["启用", "禁用"]],
     ["scope", "数据范围", "select", true, ["本人", "本部门", "全部"]],
+    ["modulePermissions", "模块操作权限", "modulepermissions", false],
+    ["workflowActions", "流程操作权限", "workflowactions", false],
     ["password", "登录密码（新增必填，编辑留空不变）", "password", false],
   ],
 };
@@ -665,14 +667,35 @@ function currentRole() {
   return roles[state.currentUser?.role] || roles.sales;
 }
 
+function isSuperAdmin(user = state.currentUser) {
+  return user?.role === "admin";
+}
+
+function effectiveModulePermissions(user = state.currentUser) {
+  const role = roles[user?.role] || roles.sales;
+  if (isSuperAdmin(user)) {
+    return Object.fromEntries(modules.map((module) => [module.id, ["view", "create", "edit", "delete", "export", "config"]]));
+  }
+  if (user?.modulePermissions && typeof user.modulePermissions === "object" && !Array.isArray(user.modulePermissions)) {
+    return { dashboard: ["view"], ...user.modulePermissions };
+  }
+  return Object.fromEntries(role.modules.map((moduleId) => [moduleId, role.actions]));
+}
+
+function effectiveScope(user = state.currentUser) {
+  return user?.scope || (roles[user?.role] || roles.sales).scope;
+}
+
 function can(moduleId, action = "view") {
-  const role = currentRole();
-  return role.modules.includes(moduleId) && role.actions.includes(action);
+  if (isSuperAdmin()) return true;
+  const actions = effectiveModulePermissions()[moduleId] || [];
+  return actions.includes(action);
 }
 
 function canWorkflow(action) {
   const user = state.currentUser;
   if (!user) return false;
+  if (isSuperAdmin(user)) return true;
   if (Array.isArray(user.workflowActions)) return user.workflowActions.includes("*") || user.workflowActions.includes(action);
   return (workflowActionRoles[action] || []).includes(user.role);
 }
@@ -686,7 +709,7 @@ function canEditWorkflowRecord(moduleId, record) {
 }
 
 function visibleModules() {
-  return modules.filter((m) => currentRole().modules.includes(m.id));
+  return modules.filter((module) => can(module.id, "view"));
 }
 
 function collectionFor(moduleId) {
@@ -695,11 +718,11 @@ function collectionFor(moduleId) {
 
 function canSeeRecord(record) {
   if (!state.currentUser) return false;
-  const role = currentRole();
-  if (role.scope === "全部" || state.currentUser.scope === "全部") return true;
+  const scope = effectiveScope();
+  if (scope === "全部") return true;
   const ids = [record.owner, record.requester, record.publisher, record.techOwner, record.createdBy].filter(Boolean);
   if (ids.includes(state.currentUser.id)) return true;
-  if (state.currentUser.scope === "本部门" || role.scope === "本部门") {
+  if (scope === "本部门") {
     const owner = db.users.find((u) => ids.includes(u.id));
     return owner ? owner.department === state.currentUser.department : true;
   }
@@ -862,7 +885,7 @@ function render() {
     renderLogin();
     return;
   }
-  if (!currentRole().modules.includes(state.route)) {
+  if (!can(state.route, "view")) {
     state.route = visibleModules()[0]?.id || "dashboard";
   }
   renderApp();
@@ -1443,7 +1466,7 @@ function renderField(moduleId, [key, label, type, required, options], record) {
   const value = record[key] ?? "";
   const requiredAttr = required ? "required" : "";
   const common = `name="${key}" ${requiredAttr}`;
-  const span = type === "textarea" ? "span-2" : "";
+  const span = ["textarea", "modulepermissions", "workflowactions"].includes(type) ? "span-2" : "";
   let input = "";
   if (type === "select" && key === "status" && ["salesOrders", "purchases", "deliveries"].includes(moduleId)) {
     input = `<input type="hidden" name="${key}" value="${escapeHtml(value)}" /><div class="field-readonly"><span class="status ${statusClass(value)}">${escapeHtml(value || "-")}</span><small>状态由流程按钮自动推进</small></div>`;
@@ -1468,12 +1491,53 @@ function renderField(moduleId, [key, label, type, required, options], record) {
     input = `<select ${common}>${Object.entries(roles).map(([id, role]) => `<option value="${id}" ${value === id ? "selected" : ""}>${role.name}</option>`).join("")}</select>`;
   } else if (type === "multirole") {
     input = `<select ${common} multiple size="5">${Object.entries(roles).map(([id, role]) => `<option value="${id}" ${(value || []).includes(id) ? "selected" : ""}>${role.name}</option>`).join("")}</select>`;
+  } else if (type === "modulepermissions") {
+    input = renderModulePermissionEditor(record);
+  } else if (type === "workflowactions") {
+    input = renderWorkflowPermissionEditor(record);
   } else if (type === "textarea") {
     input = `<textarea ${common}>${escapeHtml(value)}</textarea>`;
   } else {
     input = `<input ${common} type="${type}" value="${escapeHtml(value)}" />`;
   }
   return `<div class="field ${span}"><label>${label}${required ? " *" : ""}</label>${input}</div>`;
+}
+
+const configurableModules = () => modules.filter((module) => !["dashboard", "users"].includes(module.id));
+const moduleActionLabels = { view: "查看", create: "新增", edit: "编辑", export: "导出", delete: "作废" };
+
+function renderModulePermissionEditor(record) {
+  if (record.role === "admin") {
+    return `<div class="permission-readonly">系统管理员固定拥有全部模块和全部操作权限。</div>`;
+  }
+  const selected = effectiveModulePermissions(record);
+  return `<div class="permission-editor module-permission-editor">
+    <p>勾选该员工可在各模块执行的操作；不勾选即不可进入或操作该模块。</p>
+    ${configurableModules().map((module) => `<fieldset><legend>${escapeHtml(module.name)}</legend>${Object.entries(moduleActionLabels).map(([action, label]) => `<label><input type="checkbox" name="modulePermission:${module.id}" value="${action}" ${(selected[module.id] || []).includes(action) ? "checked" : ""}>${label}</label>`).join("")}</fieldset>`).join("")}
+  </div>`;
+}
+
+function renderWorkflowPermissionEditor(record) {
+  if (record.role === "admin") {
+    return `<div class="permission-readonly">系统管理员固定拥有全部流程操作权限。</div>`;
+  }
+  const selected = Array.isArray(record.workflowActions)
+    ? record.workflowActions
+    : workflowActions.filter((action) => action.defaultRoles.includes(record.role)).map((action) => action.id);
+  const groups = Array.from(new Set(workflowActions.map((action) => action.group)));
+  return `<div class="permission-editor workflow-permission-editor">
+    <p>用于分配审批、出入库、签收等按钮；它和数据范围是两套独立规则。</p>
+    ${groups.map((group) => `<fieldset><legend>${escapeHtml(group)}</legend>${workflowActions.filter((action) => action.group === group).map((action) => `<label><input type="checkbox" name="workflowActions" value="${action.id}" ${selected.includes(action.id) ? "checked" : ""}>${escapeHtml(action.label)}</label>`).join("")}</fieldset>`).join("")}
+  </div>`;
+}
+
+function collectModulePermissions(formData) {
+  const permissions = {};
+  configurableModules().forEach((module) => {
+    const actions = formData.getAll(`modulePermission:${module.id}`);
+    if (actions.length) permissions[module.id] = actions;
+  });
+  return permissions;
 }
 
 function bindModal() {
@@ -1490,8 +1554,10 @@ function bindModal() {
       ? moduleFields[moduleId].filter(([key]) => approvalFields.includes(key))
       : moduleFields[moduleId];
     editableFields.forEach(([key, , type]) => {
-      if (type === "multirole") {
+      if (type === "multirole" || type === "workflowactions") {
         next[key] = formData.getAll(key);
+      } else if (type === "modulepermissions") {
+        next[key] = collectModulePermissions(formData);
       } else if (type === "number") {
         const value = formData.get(key);
         next[key] = value === "" ? "" : Number(value);
@@ -1724,6 +1790,10 @@ function saveRecord(moduleId, id, record) {
   }
   const collection = collectionFor(moduleId);
   const oldRecord = id ? { ...(db[collection].find((r) => r.id === id) || {}) } : null;
+  if (moduleId === "users" && oldRecord?.role === "admin" && oldRecord.status === "启用" && (record.role !== "admin" || record.status !== "启用")) {
+    const remainingAdmins = db.users.filter((user) => user.id !== oldRecord.id && user.role === "admin" && user.status === "启用");
+    if (!remainingAdmins.length) return { ok: false, message: "系统至少需要保留一名启用的系统管理员，不能降级或禁用最后一名管理员。" };
+  }
   if (moduleId === "salesOrders" && oldRecord) {
     const validation = validateSalesOrderRollback(record, oldRecord);
     if (!validation.ok) return validation;
@@ -1747,7 +1817,7 @@ function saveRecord(moduleId, id, record) {
   if (id) {
     const index = db[collection].findIndex((r) => r.id === id);
     db[collection][index] = record;
-    logAction("update", moduleId, id, "编辑记录");
+    logAction("update", moduleId, id, moduleId === "users" ? "更新员工账号或权限配置" : "编辑记录");
     const inventoryApplied = (delivery) => delivery && !["待出库", "已取消"].includes(delivery.status);
     if (moduleId === "deliveries" && inventoryApplied(oldRecord) && !inventoryApplied(record)) {
       applyInventoryChange(oldRecord.inventoryId, "入库", Number(oldRecord.quantity || 0), `出库单 ${oldRecord.code} 回撤至待出库，库存自动回补`, oldRecord.id, "delivery");
