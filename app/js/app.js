@@ -767,7 +767,8 @@ function toast(message) {
   el.className = "toast";
   el.textContent = message;
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2600);
+  // 业务流转的提示通常包含关联单据变化，保留更久方便核对。
+  setTimeout(() => el.remove(), 8000);
 }
 
 function render() {
