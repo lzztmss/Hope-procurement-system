@@ -1006,7 +1006,7 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-create-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认生成出库单", "确认后将从该销售订单带入客户、产品和数量，生成待出库单。", () => createDeliveryFromSalesOrder(btn.dataset.createDelivery))));
   document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认出库", "确认后将正式扣减库存，操作会写入库存流水。", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound))));
   document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => openTrainingFromDelivery(btn.dataset.createTraining)));
-  document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认采购审批并下单", "确认后采购单将进入已下单，销售订单将进入待采购到货。", () => approvePurchase(btn.dataset.approvePurchase))));
+  document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => openPurchaseApproval(btn.dataset.approvePurchase)));
   document.querySelector("[data-export]")?.addEventListener("click", () => exportCsv(state.route));
   const search = document.querySelector("[data-search]");
   if (search) {
@@ -1248,7 +1248,7 @@ function renderActions(moduleId, record) {
     buttons.push(`<button class="primary-btn" data-approve-purchase="${record.id}">审批通过并下单</button>`);
   }
   if (moduleId === "purchases" && can("purchases", "edit") && ["已下单", "在途"].includes(record.status)) {
-    buttons.push(`<button class="ghost-btn" data-arrive="${record.id}">确认到货入库</button>`);
+    buttons.push(`<button class="primary-btn" data-arrive="${record.id}">确认到货入库</button>`);
   }
   if (moduleId === "deliveries" && can("deliveries", "edit") && record.status === "待出库") {
     buttons.push(`<button class="primary-btn" data-confirm-outbound="${record.id}">确认出库</button>`);
@@ -1325,12 +1325,15 @@ function openForm(moduleId, id = null) {
 
 function renderModal(moduleId, record, isEdit) {
   const module = modules.find((m) => m.id === moduleId);
-  const fields = moduleFields[moduleId] || [];
+  const approvalFields = ["code", "product", "model", "quantity", "supplierId", "estimatedDate", "lockedDate", "payment", "remark"];
+  const fields = state.editing?.purchaseApprovalId
+    ? (moduleFields[moduleId] || []).filter(([key]) => approvalFields.includes(key))
+    : (moduleFields[moduleId] || []);
   const title = state.editing?.title || `${isEdit ? "编辑" : "新增"}${module.name}`;
   return `<div class="modal-backdrop">
     <form class="modal" id="recordForm">
       <div class="modal-header">
-        <div><h2 class="panel-title">${title}</h2><p class="compact-note">关键字段会进入看板、预警和权限数据范围。</p></div>
+        <div><h2 class="panel-title">${title}</h2><p class="compact-note">${state.editing?.purchaseApprovalId ? "请核对采购数量、供应商和预计到货日期；确认后会自动增加库存台账的在途数量。" : "关键字段会进入看板、预警和权限数据范围。"}</p></div>
         <button class="icon-btn" type="button" data-close-modal>×</button>
       </div>
       <div class="modal-body">
@@ -1340,7 +1343,7 @@ function renderModal(moduleId, record, isEdit) {
       </div>
       <div class="modal-footer">
         <button class="ghost-btn" type="button" data-close-modal>取消</button>
-        <button class="primary-btn" type="submit">保存</button>
+        <button class="primary-btn" type="submit">${state.editing?.purchaseApprovalId ? "确认下单" : "保存"}</button>
       </div>
     </form>
   </div>`;
@@ -1407,10 +1410,14 @@ function bindModal() {
   bindSalesOrderAmountCalculation();
   document.getElementById("recordForm").addEventListener("submit", (event) => {
     event.preventDefault();
-    const { moduleId, id, record, sourceLeadId, sourceDeliveryId } = state.editing;
+    const { moduleId, id, record, sourceLeadId, sourceDeliveryId, purchaseApprovalId } = state.editing;
     const formData = new FormData(event.currentTarget);
     const next = { ...record };
-    moduleFields[moduleId].forEach(([key, , type]) => {
+    const approvalFields = ["code", "product", "model", "quantity", "supplierId", "estimatedDate", "lockedDate", "payment", "remark"];
+    const editableFields = purchaseApprovalId
+      ? moduleFields[moduleId].filter(([key]) => approvalFields.includes(key))
+      : moduleFields[moduleId];
+    editableFields.forEach(([key, , type]) => {
       if (type === "multirole") {
         next[key] = formData.getAll(key);
       } else if (type === "number") {
@@ -1425,7 +1432,7 @@ function bindModal() {
     }
     if (moduleId === "salesOrders") next.totalAmountManual = Boolean(record.totalAmountManual);
     next.updatedAt = nowIso();
-    const result = saveRecord(moduleId, id, next);
+    const result = purchaseApprovalId ? confirmPurchaseOrder(next, record) : saveRecord(moduleId, id, next);
     if (!result.ok) {
       toast(result.message);
       return;
@@ -1455,7 +1462,7 @@ function bindModal() {
       }
     }
     closeModal();
-    toast(moduleId === "salesOrders" && next.status === "已取消" && linkedLeadId ? `销售订单 ${next.code} 已取消，原线索已同步为暂停/丢单` : (sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已关闭` : (sourceDeliveryId ? `培训验收单 ${next.code} 创建成功` : (id ? "记录已更新" : "记录已新增"))));
+    toast(purchaseApprovalId ? `采购单 ${next.code} 已下单，已同步增加库存在途` : (moduleId === "salesOrders" && next.status === "已取消" && linkedLeadId ? `销售订单 ${next.code} 已取消，原线索已同步为暂停/丢单` : (sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已关闭` : (sourceDeliveryId ? `培训验收单 ${next.code} 创建成功` : (id ? "记录已更新" : "记录已新增")))));
     render();
   });
 }
@@ -1761,6 +1768,13 @@ function applyInventoryChange(itemId, action, quantity, remark, sourceId = "", s
 
 function receivePurchase(purchase) {
   const item = ensureInventoryForProduct(purchase.product, purchase.productId, purchase.model);
+  if (purchase.inTransitApplied && !purchase.inTransitCleared) {
+    item.inTransit = Math.max(0, Number(item.inTransit || 0) - Number(purchase.inTransitQuantity || purchase.quantity || 0));
+    if (Number(item.inTransit || 0) === 0) item.eta = "";
+    item.updatedAt = nowIso();
+    purchase.inTransitCleared = true;
+    logAction("in_transit_clear", "inventory", item.id, `采购单 ${purchase.code} 到货，库存在途减少 ${purchase.inTransitQuantity || purchase.quantity || 0}`);
+  }
   if (!purchase.receivedApplied) {
     applyInventoryChange(item.id, "入库", Number(purchase.quantity || 0), `采购到货 ${purchase.code}`, purchase.id);
     purchase.receivedApplied = true;
@@ -1917,22 +1931,44 @@ function checkSalesOrderInventory(orderId) {
   render();
 }
 
-function approvePurchase(purchaseId) {
+function openPurchaseApproval(purchaseId) {
   const purchase = db.purchases.find((item) => item.id === purchaseId);
   if (!purchase || !canApprovePurchase()) return;
+  state.editing = {
+    moduleId: "purchases",
+    id: purchase.id,
+    record: { ...purchase },
+    purchaseApprovalId: purchase.id,
+    title: "确认采购下单",
+  };
+  document.body.insertAdjacentHTML("beforeend", renderModal("purchases", purchase, true));
+  bindModal();
+}
+
+function confirmPurchaseOrder(purchase, oldPurchase) {
+  if (!purchase.estimatedDate) return { ok: false, message: "请填写预计到货日期后再确认下单" };
+  if (!Number(purchase.quantity || 0)) return { ok: false, message: "采购数量必须大于 0" };
   purchase.status = "已下单";
   purchase.approvedBy = state.currentUser.id;
   purchase.approvedAt = nowIso();
   purchase.updatedAt = nowIso();
+  purchase.inTransitApplied = true;
+  purchase.inTransitQuantity = Number(purchase.quantity || 0);
+  const index = db.purchases.findIndex((item) => item.id === oldPurchase.id);
+  if (index < 0) return { ok: false, message: "采购单不存在或已被修改，请刷新后重试" };
+  db.purchases[index] = purchase;
+  const inventory = ensureInventoryForProduct(purchase.product, purchase.productId, purchase.model);
+  inventory.inTransit = Number(inventory.inTransit || 0) + purchase.inTransitQuantity;
+  inventory.eta = purchase.estimatedDate;
+  inventory.updatedAt = nowIso();
   const order = db.salesOrders.find((item) => item.id === purchase.sourceSalesOrderId);
   if (order) {
     order.status = "待采购到货";
     order.updatedAt = nowIso();
   }
-  logAction("approve", "purchases", purchase.id, "采购审批通过");
+  logAction("approve", "purchases", purchase.id, `采购审批通过并下单，在途增加 ${purchase.inTransitQuantity}，预计到货 ${purchase.estimatedDate}`);
   saveData();
-  toast("已审批通过并下单，销售订单进入待采购到货");
-  render();
+  return { ok: true };
 }
 
 function createDeliveryFromSalesOrder(orderId) {
