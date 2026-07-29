@@ -1052,11 +1052,12 @@ function bindGlobalActions() {
     render();
   });
   document.querySelector('[data-action="reset-demo"]')?.addEventListener("click", () => {
-    if (!confirm("确认重置演示数据？当前浏览器内的修改会被覆盖。")) return;
-    db = getInitialData();
-    saveData();
-    toast("演示数据已重置");
-    render();
+    confirmAction("确认重置演示数据", "当前浏览器内的修改会被覆盖，且不能恢复。", () => {
+      db = getInitialData();
+      saveData();
+      toast("演示数据已重置");
+      render();
+    });
   });
   document.querySelector('[data-action="toggle-activity"]')?.addEventListener("click", () => {
     state.activityOpen = !state.activityOpen;
@@ -1949,7 +1950,13 @@ function removeRecord(moduleId, id) {
   const record = (db[collection] || []).find((item) => item.id === id);
   if (!record) return;
   const actionName = moduleId === "leads" ? "关闭线索" : "作废";
-  if (!confirm(`确认${actionName}这条记录？操作会保留业务追溯，不能恢复为彻底删除。`)) return;
+  confirmAction(`确认${actionName}`, `确认${actionName}这条记录？操作会保留业务追溯，不能恢复为彻底删除。`, () => voidRecord(moduleId, id));
+}
+
+function voidRecord(moduleId, id) {
+  const collection = collectionFor(moduleId);
+  const record = (db[collection] || []).find((item) => item.id === id);
+  if (!record) return;
   if (moduleId === "leads") {
     const linkedOrder = db.salesOrders.find((order) => order.leadId === record.id);
     if (linkedOrder) {
@@ -2517,9 +2524,8 @@ function createReplacementDelivery(id) {
   render();
 }
 
-function adjustStock(itemId, action) {
+function adjustStock(itemId, action, amount) {
   const item = db.inventory.find((i) => i.id === itemId);
-  const amount = Number(prompt(`${action}数量：${item?.name || ""}`, "1"));
   if (!Number.isFinite(amount) || amount <= 0) return;
   if (action === "出库" && availableStock(item) < amount) {
     toast(`库存不足：当前 ${item.stock}，已锁定 ${item.locked}，可用 ${availableStock(item)}；不能出库 ${amount}`);
@@ -2539,10 +2545,20 @@ function openManualStockAdjustment(itemId, action) {
     toast(`无法手动出库：当前库存 ${item.stock}，其中 ${item.locked} 已被订单锁定，可用库存为 ${available}`);
     return;
   }
-  const message = action === "出库"
-    ? `当前库存 ${item.stock}，已锁定 ${item.locked}，本次最多可出 ${available}。确认后请输入出库数量。`
-    : `当前库存 ${item.stock}，确认后请输入入库数量。`;
-  confirmAction(`确认手动${action}`, message, () => adjustStock(itemId, action));
+  const limit = action === "出库" ? `max="${available}"` : "";
+  const note = action === "出库"
+    ? `当前库存 ${item.stock}，已锁定 ${item.locked}，本次最多可出 ${available}。`
+    : `当前库存 ${item.stock}，请填写本次实际入库数量。`;
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" data-stock-adjustment><section class="modal confirm-modal"><div class="modal-header"><div><h2 class="panel-title">手动${escapeHtml(action)}</h2><p class="compact-note">${escapeHtml(item.name)}：${escapeHtml(note)}</p></div><button class="icon-btn" type="button" data-close-stock-adjustment>×</button></div><form id="stockAdjustmentForm"><div class="modal-body"><div class="field"><label>${escapeHtml(action)}数量 *</label><input name="quantity" type="number" min="1" step="1" ${limit} required autofocus value="1"></div></div><div class="modal-footer"><button class="ghost-btn" type="button" data-close-stock-adjustment>取消</button><button class="primary-btn" type="submit">确认${escapeHtml(action)}</button></div></form></section></div>`);
+  const close = () => document.querySelector("[data-stock-adjustment]")?.remove();
+  document.querySelectorAll("[data-close-stock-adjustment]").forEach((button) => button.addEventListener("click", close));
+  document.getElementById("stockAdjustmentForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const amount = Number(new FormData(event.currentTarget).get("quantity"));
+    if (!Number.isFinite(amount) || amount <= 0 || (action === "出库" && amount > available)) return;
+    close();
+    adjustStock(itemId, action, amount);
+  });
 }
 
 function exportCsv(moduleId) {
