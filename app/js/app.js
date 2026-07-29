@@ -588,7 +588,31 @@ function moduleName(moduleId) {
 }
 
 function actionName(action) {
-  return ({ create: "新增", update: "编辑", delete: "删除", cancel: "作废", approve: "审批", inbound: "入库", outbound: "出库", purchase_received: "采购到货", rollback: "回撤", merge: "合并" })[action] || action || "操作";
+  return ({
+    create: "新增",
+    update: "编辑",
+    delete: "删除",
+    cancel: "作废",
+    approve: "审批",
+    inbound: "入库",
+    outbound: "出库",
+    purchase_received: "采购到货",
+    rollback: "回撤",
+    merge: "合并",
+    complete: "完成",
+    submit: "提交审批",
+    inventory_check: "检查库存",
+    inventory_shortage: "库存不足",
+    in_transit_clear: "清除在途",
+    purchase_transit: "标记在途",
+    technical_confirm: "技术确认",
+    link: "关联",
+    return_start: "发起退库",
+    return_receive: "确认收货",
+    return_stock: "退库入库",
+    replacement_create: "生成换货出库单",
+    replacement_outbound: "换货出库",
+  })[action] || action || "操作";
 }
 
 function activityReadKey() {
