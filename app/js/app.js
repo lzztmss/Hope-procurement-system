@@ -1011,8 +1011,13 @@ function bindGlobalActions() {
   const search = document.querySelector("[data-search]");
   if (search) {
     search.addEventListener("input", (event) => {
+      const caret = event.target.selectionStart ?? event.target.value.length;
       state.search = event.target.value;
       render();
+      // 搜索会刷新结果列表；刷新后把焦点与光标交回搜索框，支持连续输入和删除。
+      const nextSearch = document.querySelector("[data-search]");
+      nextSearch?.focus();
+      nextSearch?.setSelectionRange(caret, caret);
     });
   }
   const filter = document.querySelector("[data-status-filter]");
