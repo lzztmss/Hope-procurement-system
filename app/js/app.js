@@ -158,9 +158,9 @@ const moduleFields = {
   ],
   inventory: [
     ["sku", "SKU", "text", true],
-    ["name", "产品名称", "text", true],
+    ["name", "产品名称", "product", true],
     ["model", "型号/规格", "text", false],
-    ["category", "类别", "select", true, ["手表", "表带/配件", "智能套装", "床垫", "样机", "其他"]],
+    ["category", "类别", "select", true, ["手表", "表带/配件", "智能套装", "床垫", "平台服务", "组合方案", "样机", "其他"]],
     ["safeStock", "安全库存", "number", true],
     ["stock", "当前库存", "number", true],
     ["locked", "已锁定", "number", true],
@@ -1471,6 +1471,7 @@ function renderField(moduleId, [key, label, type, required, options], record) {
 function bindModal() {
   document.querySelectorAll("[data-close-modal]").forEach((btn) => btn.addEventListener("click", closeModal));
   bindSalesOrderAmountCalculation();
+  bindInventoryProductAutofill();
   document.getElementById("recordForm").addEventListener("submit", (event) => {
     event.preventDefault();
     const { moduleId, id, record, sourceLeadId, sourceDeliveryId, purchaseApprovalId } = state.editing;
@@ -1492,6 +1493,9 @@ function bindModal() {
     });
     if (["salesOrders", "purchases", "trainings"].includes(moduleId)) {
       next.productId = findProductByLabel(db.products, next.product, next.model)?.id || "";
+    }
+    if (moduleId === "inventory") {
+      next.productId = findProductByLabel(db.products, next.name, next.model)?.id || "";
     }
     if (moduleId === "salesOrders") next.totalAmountManual = Boolean(record.totalAmountManual);
     next.updatedAt = nowIso();
@@ -1547,6 +1551,30 @@ function bindSalesOrderAmountCalculation() {
   totalAmount.addEventListener("input", () => {
     state.editing.record.totalAmountManual = true;
   });
+}
+
+function bindInventoryProductAutofill() {
+  if (state.editing?.moduleId !== "inventory") return;
+  const form = document.getElementById("recordForm");
+  const name = form?.elements.namedItem("name");
+  if (!form || !name) return;
+
+  const fillProductDefaults = (replaceSku = false) => {
+    const product = findProductByLabel(db.products, name.value);
+    if (!product) return;
+    const sku = form.elements.namedItem("sku");
+    const model = form.elements.namedItem("model");
+    const category = form.elements.namedItem("category");
+    const safeStock = form.elements.namedItem("safeStock");
+    if (sku && (replaceSku || !sku.value)) sku.value = product.code ? `SKU-${product.code}` : "";
+    if (model) model.value = product.model || "";
+    if (category && Array.from(category.options).some((option) => option.value === product.category)) category.value = product.category;
+    if (safeStock) safeStock.value = String(Number(product.safeStock || 0));
+  };
+
+  // 新增时直接按产品字典带入；编辑时只在主动换产品后更新，避免覆盖原库存资料。
+  if (!state.editing.id) fillProductDefaults();
+  name.addEventListener("change", () => fillProductDefaults(true));
 }
 
 function closeModal() {
