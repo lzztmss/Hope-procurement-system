@@ -328,6 +328,7 @@ const state = {
   statusFilter: "全部",
   editing: null,
   confirmAction: null,
+  activityOpen: false,
 };
 
 function uid(prefix) {
@@ -554,6 +555,27 @@ function getSessionUser() {
 
 function userName(id) {
   return db.users.find((u) => u.id === id)?.name || id || "-";
+}
+
+function moduleName(moduleId) {
+  return modules.find((module) => module.id === moduleId)?.name || moduleId || "系统";
+}
+
+function actionName(action) {
+  return ({ create: "新增", update: "编辑", delete: "删除", cancel: "作废", approve: "审批", inbound: "入库", outbound: "出库", purchase_received: "采购到货", rollback: "回撤", merge: "合并" })[action] || action || "操作";
+}
+
+function renderActivityPanel() {
+  if (!state.activityOpen) return "";
+  const activities = (db.auditLogs || []).slice(0, 10);
+  return `<section class="activity-panel" aria-label="流程动态">
+    <div class="activity-panel-title"><strong>流程动态</strong><span>最近操作</span></div>
+    <div class="activity-list">${activities.length ? activities.map((log) => `<article class="activity-item">
+      <strong>${escapeHtml(userName(log.operatorId))} · ${escapeHtml(actionName(log.action))}${escapeHtml(moduleName(log.moduleId))}</strong>
+      <p>${escapeHtml(log.detail || "")}</p>
+      <time>${escapeHtml(formatDate(log.createdAt))}</time>
+    </article>`).join("") : `<p class="compact-note">暂时没有流程动态</p>`}</div>
+  </section>`;
 }
 
 function supplierName(id) {
@@ -873,6 +895,10 @@ function renderApp() {
             <p class="page-desc">${route?.desc || ""}</p>
           </div>
           <div class="topbar-actions">
+            <div class="activity-wrap">
+              <button class="bell-btn" type="button" data-action="toggle-activity" aria-label="查看流程动态" title="流程动态">&#128276;<span class="bell-dot"></span></button>
+              ${renderActivityPanel()}
+            </div>
             <span class="role-pill">${state.currentUser.name} · ${roleName(state.currentUser.role)}</span>
             ${PUBLIC_PRODUCTION ? "" : `<button class="ghost-btn" data-action="reset-demo">重置演示数据</button>`}
             <button class="ghost-btn" data-action="logout">退出</button>
@@ -917,6 +943,10 @@ function bindGlobalActions() {
     toast("演示数据已重置");
     render();
   });
+  document.querySelector('[data-action="toggle-activity"]')?.addEventListener("click", () => {
+    state.activityOpen = !state.activityOpen;
+    render();
+  });
   document.querySelectorAll("[data-create]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.create)));
   document.querySelectorAll("[data-view]").forEach((btn) => btn.addEventListener("click", () => openDetail(btn.dataset.module, btn.dataset.view)));
   document.querySelectorAll("[data-edit]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.module, btn.dataset.edit)));
@@ -931,8 +961,8 @@ function bindGlobalActions() {
     state.search = btn.dataset.alertRef;
     render();
   }));
-  document.querySelectorAll("[data-inbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认入库", "请确认要进入库存调整并增加库存。", () => adjustStock(btn.dataset.inbound, "入库"))));
-  document.querySelectorAll("[data-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认手动出库", "请确认要进入库存调整并扣减库存。", () => adjustStock(btn.dataset.outbound, "出库"))));
+  document.querySelectorAll("[data-inbound]").forEach((btn) => btn.addEventListener("click", () => openManualStockAdjustment(btn.dataset.inbound, "入库")));
+  document.querySelectorAll("[data-outbound]").forEach((btn) => btn.addEventListener("click", () => openManualStockAdjustment(btn.dataset.outbound, "出库")));
   document.querySelectorAll("[data-create-order]").forEach((btn) => btn.addEventListener("click", () => openSalesOrderFromLead(btn.dataset.createOrder)));
   document.querySelectorAll("[data-submit-order]").forEach((btn) => btn.addEventListener("click", () => submitSalesOrderForApproval(btn.dataset.submitOrder)));
   document.querySelectorAll("[data-approve-order]").forEach((btn) => btn.addEventListener("click", () => approveSalesOrder(btn.dataset.approveOrder)));
@@ -1188,7 +1218,7 @@ function renderActions(moduleId, record) {
     buttons.push(`<button class="primary-btn" data-confirm-outbound="${record.id}">确认出库</button>`);
   }
   if (moduleId === "deliveries" && can("trainings", "create") && ["已出库", "配送中", "已签收", "已验收"].includes(record.status)) {
-    buttons.push(`<button class="ghost-btn" data-create-training="${record.id}">生成培训验收</button>`);
+    buttons.push(`<button class="primary-btn" data-create-training="${record.id}">生成培训验收</button>`);
   }
   // 业务处理按钮在前，查看固定在编辑之前；库存台账不需要展开查看。
   if (moduleId !== "inventory" && can(moduleId, "view")) {
@@ -1537,8 +1567,9 @@ function saveRecord(moduleId, id, record) {
   if (moduleId === "deliveries") {
     const item = db.inventory.find((i) => i.id === record.inventoryId);
     const old = id ? db.deliveries.find((d) => d.id === id) : null;
-    const newlyOutbound = !old && !["待出库"].includes(record.status);
-    const changedToOutbound = old && old.status === "待出库" && record.status !== "待出库";
+    const inventoryApplied = (delivery) => delivery && !["待出库", "已取消"].includes(delivery.status);
+    const newlyOutbound = !old && inventoryApplied(record);
+    const changedToOutbound = old && !inventoryApplied(old) && inventoryApplied(record);
     if (newlyOutbound && item && availableStock(item) < Number(record.quantity || 0)) {
       return { ok: false, message: `库存不足：${item.name} 当前可用 ${availableStock(item)}，无法出库 ${record.quantity}` };
     }
@@ -1572,7 +1603,12 @@ function saveRecord(moduleId, id, record) {
     const index = db[collection].findIndex((r) => r.id === id);
     db[collection][index] = record;
     logAction("update", moduleId, id, "编辑记录");
-    if (moduleId === "deliveries" && oldRecord?.status === "待出库" && record.status !== "待出库") {
+    const inventoryApplied = (delivery) => delivery && !["待出库", "已取消"].includes(delivery.status);
+    if (moduleId === "deliveries" && inventoryApplied(oldRecord) && !inventoryApplied(record)) {
+      applyInventoryChange(oldRecord.inventoryId, "入库", Number(oldRecord.quantity || 0), `出库单 ${oldRecord.code} 回撤至待出库，库存自动回补`, oldRecord.id, "delivery");
+      logAction("rollback", "deliveries", oldRecord.id, "出库状态回撤，库存已自动回补");
+    }
+    if (moduleId === "deliveries" && !inventoryApplied(oldRecord) && inventoryApplied(record)) {
       applyInventoryChange(record.inventoryId, "出库", Number(record.quantity || 0), `交付单 ${record.code}`, record.id);
     }
   } else {
@@ -1648,7 +1684,7 @@ function removeRecord(moduleId, id) {
   render();
 }
 
-function applyInventoryChange(itemId, action, quantity, remark, sourceId = "") {
+function applyInventoryChange(itemId, action, quantity, remark, sourceId = "", sourceType = "") {
   const item = db.inventory.find((i) => i.id === itemId);
   if (!item || !quantity) return;
   const before = Number(item.stock || 0);
@@ -1662,7 +1698,7 @@ function applyInventoryChange(itemId, action, quantity, remark, sourceId = "") {
     quantity,
     beforeStock: before,
     afterStock: after,
-    sourceType: action === "入库" ? "purchase" : "delivery",
+    sourceType: sourceType || (action === "入库" ? "purchase" : "delivery"),
     sourceId,
     operatorId: state.currentUser.id,
     createdAt: nowIso(),
@@ -1946,13 +1982,27 @@ function adjustStock(itemId, action) {
   const amount = Number(prompt(`${action}数量：${item?.name || ""}`, "1"));
   if (!Number.isFinite(amount) || amount <= 0) return;
   if (action === "出库" && availableStock(item) < amount) {
-    toast(`库存不足，当前可用 ${availableStock(item)}`);
+    toast(`库存不足：当前 ${item.stock}，已锁定 ${item.locked}，可用 ${availableStock(item)}；不能出库 ${amount}`);
     return;
   }
   applyInventoryChange(itemId, action, amount, `${action}手动调整`);
   saveData();
   toast(`${action}完成`);
   render();
+}
+
+function openManualStockAdjustment(itemId, action) {
+  const item = db.inventory.find((inventory) => inventory.id === itemId);
+  if (!item) return;
+  const available = availableStock(item);
+  if (action === "出库" && available <= 0) {
+    toast(`无法手动出库：当前库存 ${item.stock}，其中 ${item.locked} 已被订单锁定，可用库存为 ${available}`);
+    return;
+  }
+  const message = action === "出库"
+    ? `当前库存 ${item.stock}，已锁定 ${item.locked}，本次最多可出 ${available}。确认后请输入出库数量。`
+    : `当前库存 ${item.stock}，确认后请输入入库数量。`;
+  confirmAction(`确认手动${action}`, message, () => adjustStock(itemId, action));
 }
 
 function exportCsv(moduleId) {
