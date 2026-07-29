@@ -390,10 +390,8 @@ function normalizeData(data) {
     if (!order || ["已出库", "已完成", "已取消"].includes(order.status)) return;
     if (["待采购审批", "待技术确认"].includes(purchase.status)) order.status = "待采购审批";
     if (["已下单", "在途"].includes(purchase.status)) order.status = "待采购到货";
-    if (purchase.status === "已到货") {
-      const item = normalized.inventory.find((inventory) => inventory.productId === purchase.productId);
-      order.status = item && Number(item.stock || 0) - Number(item.locked || 0) >= Number(order.quantity || 0) ? "待出库" : "待采购到货";
-    }
+    // 当前未提供“部分到货”流程；确认到货即代表该订单的缺货已补齐。
+    if (purchase.status === "已到货") order.status = "待出库";
   });
   if (!normalized.meta) normalized.meta = { version: 1, createdAt: nowIso() };
   normalized.meta.version = Math.max(Number(normalized.meta.version || 1), 2);
@@ -1674,14 +1672,16 @@ function applyInventoryChange(itemId, action, quantity, remark, sourceId = "") {
 
 function receivePurchase(purchase) {
   const item = ensureInventoryForProduct(purchase.product, purchase.productId, purchase.model);
-  if (purchase.receivedApplied) return;
-  applyInventoryChange(item.id, "入库", Number(purchase.quantity || 0), `采购到货 ${purchase.code}`, purchase.id);
-  purchase.receivedApplied = true;
+  if (!purchase.receivedApplied) {
+    applyInventoryChange(item.id, "入库", Number(purchase.quantity || 0), `采购到货 ${purchase.code}`, purchase.id);
+    purchase.receivedApplied = true;
+  }
   if (purchase.sourceSalesOrderId) {
     const order = db.salesOrders.find((candidate) => candidate.id === purchase.sourceSalesOrderId);
-    if (order) {
-      order.status = availableStock(item) >= Number(order.quantity || 0) ? "待出库" : "待采购到货";
+    if (order && order.status !== "已取消") {
+      order.status = "待出库";
       order.updatedAt = nowIso();
+      logAction("purchase_received", "salesOrders", order.id, `关联采购单 ${purchase.code} 已到货入库，订单进入待出库`);
     }
   }
 }
