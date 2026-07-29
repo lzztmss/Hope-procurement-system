@@ -176,6 +176,14 @@ button {
   color: var(--brand);
 }
 
+.completed-action:disabled {
+  background: #fff;
+  border-color: var(--line);
+  color: #718096;
+  cursor: not-allowed;
+  opacity: 0.82;
+}
+
 .danger-btn {
   background: var(--red-soft);
   color: var(--red);

@@ -1328,8 +1328,13 @@ function renderActions(moduleId, record) {
   if (moduleId === "deliveries" && record.status === "已签收" && canWorkflow("delivery_accept")) {
     buttons.push(`<button class="primary-btn" data-accept-delivery="${record.id}">确认验收</button>`);
   }
-  if (moduleId === "deliveries" && can("trainings", "create") && ["已出库", "配送中", "已签收", "已验收"].includes(record.status)) {
-    buttons.push(`<button class="primary-btn" data-create-training="${record.id}">生成培训验收</button>`);
+  if (moduleId === "deliveries" && ["已出库", "配送中", "已签收", "已验收"].includes(record.status)) {
+    const training = db.trainings.find((item) => item.id === record.trainingId || item.deliveryId === record.id);
+    if (training) {
+      buttons.push(`<button class="ghost-btn completed-action" type="button" disabled title="培训验收单 ${escapeHtml(training.code)} 已生成">已生成培训验收</button>`);
+    } else if (can("trainings", "create")) {
+      buttons.push(`<button class="primary-btn" data-create-training="${record.id}">生成培训验收</button>`);
+    }
   }
   // 业务处理按钮在前，查看固定在编辑之前；库存台账不需要展开查看。
   if (moduleId !== "inventory" && can(moduleId, "view")) {
