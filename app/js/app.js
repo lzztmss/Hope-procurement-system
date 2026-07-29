@@ -337,6 +337,9 @@ const state = {
   confirmAction: null,
   activityOpen: false,
   activityLimit: 10,
+  inventoryLogSearch: "",
+  inventoryLogPage: 1,
+  inventoryLogPageSize: 20,
 };
 
 function uid(prefix) {
@@ -1079,7 +1082,21 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-dispatch-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认配送中", "确认货物已交付物流或正在配送吗？", () => advanceDelivery(btn.dataset.dispatchDelivery, "已出库", "配送中", "delivery_dispatch", "已标记配送中"))));
   document.querySelectorAll("[data-sign-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认签收", "确认客户已签收本次交付吗？", () => advanceDelivery(btn.dataset.signDelivery, "配送中", "已签收", "delivery_sign", "已确认签收"))));
   document.querySelectorAll("[data-accept-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认验收", "确认本次交付已验收完成吗？", () => advanceDelivery(btn.dataset.acceptDelivery, "已签收", "已验收", "delivery_accept", "已确认验收"))));
-  document.querySelector("[data-export]")?.addEventListener("click", () => exportCsv(state.route));
+  document.querySelector("[data-export]")?.addEventListener("click", () => state.route === "inventory" ? openInventoryExportDialog() : exportCsv(state.route));
+  document.querySelector("[data-inventory-log-search]")?.addEventListener("input", (event) => {
+    state.inventoryLogSearch = event.target.value;
+    state.inventoryLogPage = 1;
+    render();
+  });
+  document.querySelector("[data-inventory-log-size]")?.addEventListener("change", (event) => {
+    state.inventoryLogPageSize = Number(event.target.value);
+    state.inventoryLogPage = 1;
+    render();
+  });
+  document.querySelectorAll("[data-inventory-log-page]").forEach((button) => button.addEventListener("click", () => {
+    state.inventoryLogPage = Number(button.dataset.inventoryLogPage);
+    render();
+  }));
   const search = document.querySelector("[data-search]");
   if (search) {
     search.addEventListener("input", (event) => {
@@ -1386,15 +1403,20 @@ function renderActions(moduleId, record) {
 }
 
 function renderInventoryLogs() {
-  const logs = (db.inventoryLogs || []).slice(0, 10);
+  const needle = state.inventoryLogSearch.trim().toLowerCase();
+  const filtered = (db.inventoryLogs || []).filter((log) => !needle || [inventoryName(log.itemId), log.action, userName(log.operatorId), log.remark, log.sourceId].join(" ").toLowerCase().includes(needle));
+  const pages = Math.max(1, Math.ceil(filtered.length / state.inventoryLogPageSize));
+  const page = Math.min(state.inventoryLogPage, pages);
+  const logs = filtered.slice((page - 1) * state.inventoryLogPageSize, page * state.inventoryLogPageSize);
   return `<section class="panel">
-    <div class="panel-header"><h2 class="panel-title">库存流水</h2><span class="compact-note">库存变化必须可追溯到来源单据和操作人</span></div>
+    <div class="panel-header"><div><h2 class="panel-title">库存流水</h2><span class="compact-note">库存变化必须可追溯到来源单据和操作人</span></div><div class="panel-tools"><input class="search-input" data-inventory-log-search placeholder="搜索产品、动作、操作人、单据号" value="${escapeHtml(state.inventoryLogSearch)}"><select class="filter-select" data-inventory-log-size><option value="20" ${state.inventoryLogPageSize === 20 ? "selected" : ""}>每页 20 条</option><option value="50" ${state.inventoryLogPageSize === 50 ? "selected" : ""}>每页 50 条</option><option value="100" ${state.inventoryLogPageSize === 100 ? "selected" : ""}>每页 100 条</option></select></div></div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>时间</th><th>产品</th><th>动作</th><th>数量</th><th>变化前</th><th>变化后</th><th>操作人</th><th>备注</th></tr></thead>
-        <tbody>${logs.map((log) => `<tr><td>${formatDate(log.createdAt)}</td><td>${inventoryName(log.itemId)}</td><td>${log.action}</td><td>${log.quantity}</td><td>${log.beforeStock}</td><td>${log.afterStock}</td><td>${userName(log.operatorId)}</td><td>${escapeHtml(log.remark || "")}</td></tr>`).join("")}</tbody>
+        <tbody>${logs.length ? logs.map((log) => `<tr><td>${formatDate(log.createdAt)}</td><td>${inventoryName(log.itemId)}</td><td>${log.action}</td><td>${log.quantity}</td><td>${log.beforeStock}</td><td>${log.afterStock}</td><td>${userName(log.operatorId)}</td><td>${escapeHtml(log.remark || "")}</td></tr>`).join("") : `<tr><td colspan="8" class="empty">没有符合条件的库存流水</td></tr>`}</tbody>
       </table>
     </div>
+    <div class="pagination"><span>共 ${filtered.length} 条，第 ${page} / ${pages} 页</span><button class="ghost-btn" data-inventory-log-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button><button class="ghost-btn" data-inventory-log-page="${page + 1}" ${page >= pages ? "disabled" : ""}>下一页</button></div>
   </section>`;
 }
 
@@ -2467,6 +2489,34 @@ function exportCsv(moduleId) {
   a.download = `${modules.find((m) => m.id === moduleId)?.name || moduleId}_${today}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadCsv(filename, headers, rows) {
+  const csv = [headers, ...rows].map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportInventoryLogsCsv() {
+  const headers = ["时间", "产品", "动作", "数量", "变化前", "变化后", "操作人", "来源单据", "备注"];
+  const rows = (db.inventoryLogs || []).map((log) => [formatDate(log.createdAt), inventoryName(log.itemId), log.action, log.quantity, log.beforeStock, log.afterStock, userName(log.operatorId), log.sourceId || "-", log.remark || ""]);
+  downloadCsv(`库存流水_${today}.csv`, headers, rows);
+}
+
+function openInventoryExportDialog() {
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop"><section class="modal confirm-modal"><div class="modal-header"><div><h2 class="panel-title">选择导出内容</h2><p class="compact-note">库存台账和库存流水将分别导出为 CSV 文件，便于打开和核对。</p></div><button class="icon-btn" type="button" data-close-modal>×</button></div><div class="modal-body"><div class="export-choice"><button class="ghost-btn" data-inventory-export="ledger">仅导出台账</button><button class="ghost-btn" data-inventory-export="logs">仅导出流水</button><button class="primary-btn" data-inventory-export="both">台账和流水都导出</button></div></div></section></div>`);
+  document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeModal));
+  document.querySelectorAll("[data-inventory-export]").forEach((button) => button.addEventListener("click", () => {
+    const choice = button.dataset.inventoryExport;
+    if (choice === "ledger" || choice === "both") exportCsv("inventory");
+    if (choice === "logs" || choice === "both") exportInventoryLogsCsv();
+    closeModal();
+    toast(choice === "both" ? "库存台账和库存流水已分别导出" : "导出完成");
+  }));
 }
 
 document.addEventListener("click", (event) => {
