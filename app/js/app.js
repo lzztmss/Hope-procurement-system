@@ -159,8 +159,8 @@ const moduleFields = {
     ["remark", "备注", "textarea", false],
   ],
   products: [
-    ["code", "产品编码", "text", true],
-    ["name", "产品名称", "text", true],
+    ["code", "产品编码（系统自动生成）", "autocode", true],
+    ["name", "产品名称（可选已有或输入新名称）", "productname", true],
     ["category", "类别", "select", true, ["手表", "表带/配件", "智能套装", "床垫", "样机", "平台服务", "组合方案", "其他"]],
     ["model", "设备型号/规格", "text", true],
     ["unit", "单位", "text", false],
@@ -1331,7 +1331,7 @@ function renderModule(moduleId) {
             <option ${state.statusFilter === "全部" ? "selected" : ""}>全部</option>
             ${allStatuses.map((s) => `<option ${state.statusFilter === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
           </select>
-          ${can(moduleId, "create") ? `<button class="primary-btn" data-create="${moduleId}">新增</button>` : ""}
+          ${can(moduleId, "create") ? `<button class="primary-btn" data-create="${moduleId}">${moduleId === "products" ? "新增产品/型号" : "新增"}</button>` : ""}
           ${can(moduleId, "export") ? `<button class="ghost-btn" data-export="${moduleId}">导出</button>` : ""}
         </div>
       </div>
@@ -1522,6 +1522,7 @@ function getDefaultRecord(moduleId) {
   if (moduleId === "deliveries") record.code = `D${Date.now().toString().slice(-8)}`;
   if (moduleId === "trainings") record.code = `T${Date.now().toString().slice(-8)}`;
   if (moduleId === "aftersales") record.code = `A${Date.now().toString().slice(-8)}`;
+  if (moduleId === "products") record.code = `PROD-${Date.now().toString().slice(-8)}`;
   return record;
 }
 
@@ -1545,7 +1546,10 @@ function renderModal(moduleId, record, isEdit) {
   const fields = state.editing?.purchaseApprovalId
     ? (moduleFields[moduleId] || []).filter(([key]) => approvalFields.includes(key))
     : (moduleFields[moduleId] || []);
-  const title = state.editing?.title || `${isEdit ? "编辑" : "新增"}${module.name}`;
+  const defaultTitle = moduleId === "products"
+    ? `${isEdit ? "编辑" : "新增"}产品/型号`
+    : `${isEdit ? "编辑" : "新增"}${module.name}`;
+  const title = state.editing?.title || defaultTitle;
   return `<div class="modal-backdrop">
     <form class="modal" id="recordForm">
       <div class="modal-header">
@@ -1599,6 +1603,10 @@ function renderField(moduleId, [key, label, type, required, options], record) {
     input = `<select ${common}>${allowedOptions.map((op) => `<option ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
   } else if (type === "product") {
     input = `<select ${common}><option value="">请选择产品</option>${productOptions(value).map((op) => `<option value="${escapeHtml(op)}" ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
+  } else if (type === "productname") {
+    input = `<input ${common} type="text" list="product-name-options" value="${escapeHtml(value)}" /><datalist id="product-name-options">${productOptions(value).map((name) => `<option value="${escapeHtml(name)}"></option>`).join("")}</datalist>`;
+  } else if (type === "autocode") {
+    input = `<input ${common} type="text" readonly value="${escapeHtml(value)}" title="由系统自动生成，创建后不可修改" />`;
   } else if (type === "model") {
     const productName = moduleId === "inventory" ? record.name : record.product;
     const models = productModelsForName(productName, value);
@@ -1677,6 +1685,7 @@ function bindModal() {
   bindSalesOrderAmountCalculation();
   bindProductVariantLinkage();
   bindInventoryProductAutofill();
+  bindProductDictionaryAutofill();
   document.getElementById("recordForm").addEventListener("submit", (event) => {
     event.preventDefault();
     const { moduleId, id, record, sourceLeadId, sourceDeliveryId, purchaseApprovalId } = state.editing;
@@ -1815,10 +1824,60 @@ function bindInventoryProductAutofill() {
   name.addEventListener("change", () => fillProductDefaults(true));
 }
 
+function bindProductDictionaryAutofill() {
+  if (state.editing?.moduleId !== "products") return;
+  const form = document.getElementById("recordForm");
+  const name = form?.elements.namedItem("name");
+  if (!form || !name) return;
+  name.addEventListener("change", () => {
+    const existing = (db.products || []).find((product) => normalizedProductName(product.name) === normalizedProductName(name.value));
+    if (!existing) return;
+    const category = form.elements.namedItem("category");
+    const unit = form.elements.namedItem("unit");
+    const safeStock = form.elements.namedItem("safeStock");
+    const supplier = form.elements.namedItem("supplierId");
+    if (category && Array.from(category.options).some((option) => option.value === existing.category)) category.value = existing.category;
+    if (unit) unit.value = existing.unit || "";
+    if (safeStock) safeStock.value = String(Number(existing.safeStock || 0));
+    if (supplier && Array.from(supplier.options).some((option) => option.value === existing.supplierId)) supplier.value = existing.supplierId || "";
+  });
+}
+
 function closeModal() {
   document.querySelector(".modal-backdrop")?.remove();
   state.editing = null;
 }
+
+let activeModalDrag = null;
+
+document.addEventListener("pointerdown", (event) => {
+  if (window.innerWidth <= 760 || event.target.closest("button, input, select, textarea, label, a")) return;
+  const header = event.target.closest(".modal-header");
+  const modal = header?.closest(".modal");
+  if (!modal) return;
+  const rect = modal.getBoundingClientRect();
+  modal.style.position = "fixed";
+  modal.style.left = `${rect.left}px`;
+  modal.style.top = `${rect.top}px`;
+  modal.style.margin = "0";
+  activeModalDrag = { modal, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top };
+  header.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+});
+
+document.addEventListener("pointermove", (event) => {
+  if (!activeModalDrag) return;
+  const { modal, offsetX, offsetY } = activeModalDrag;
+  const rect = modal.getBoundingClientRect();
+  const left = Math.max(8, Math.min(event.clientX - offsetX, window.innerWidth - rect.width - 8));
+  const top = Math.max(8, Math.min(event.clientY - offsetY, window.innerHeight - rect.height - 8));
+  modal.style.left = `${left}px`;
+  modal.style.top = `${top}px`;
+});
+
+document.addEventListener("pointerup", () => {
+  activeModalDrag = null;
+});
 
 function openDetail(moduleId, id) {
   if (!can(moduleId, "view")) return;

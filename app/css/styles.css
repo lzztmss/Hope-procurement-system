@@ -754,6 +754,19 @@ tbody tr:nth-child(even) td {
   gap: 12px;
 }
 
+.modal-header {
+  cursor: grab;
+  user-select: none;
+}
+
+.modal-header:active {
+  cursor: grabbing;
+}
+
+.modal-header button {
+  cursor: pointer;
+}
+
 .modal-footer {
   border-top: 1px solid var(--line);
   border-bottom: 0;
