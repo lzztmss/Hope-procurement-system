@@ -95,6 +95,7 @@ const moduleFields = {
     ["contact", "联系人", "text", true],
     ["phone", "联系电话", "text", true],
     ["product", "需求产品", "product", true],
+    ["model", "设备型号/规格", "model", true],
     ["quantity", "预计数量", "number", false],
     ["projectType", "项目类型", "select", true, ["投标", "直采", "送样", "零售", "合作洽谈", "售后带单"]],
     ["stage", "商机阶段", "select", true, ["初步咨询", "需求确认", "方案/报价", "投标中", "合同推进", "已成交", "暂停/丢单"]],
@@ -111,7 +112,7 @@ const moduleFields = {
     ["contact", "联系人", "text", false],
     ["phone", "联系电话", "text", false],
     ["product", "产品名称", "product", true],
-    ["model", "型号/规格", "text", false],
+    ["model", "设备型号/规格", "model", true],
     ["quantity", "数量", "number", true],
     ["unitPrice", "单价", "number", false],
     ["totalAmount", "订单金额", "number", false],
@@ -128,7 +129,7 @@ const moduleFields = {
     ["requester", "提交人", "user", true],
     ["type", "需求类型", "select", true, ["大宗采购", "项目采购", "临时采购", "补库采购", "售后换货"]],
     ["product", "产品名称", "product", true],
-    ["model", "型号/规格", "text", false],
+    ["model", "设备型号/规格", "model", true],
     ["quantity", "数量", "number", true],
     ["contractSigned", "合同已签", "select", true, ["是", "否", "不适用"]],
     ["project", "对应客户/项目", "text", false],
@@ -145,7 +146,7 @@ const moduleFields = {
   inventory: [
     ["sku", "SKU", "text", true],
     ["name", "产品名称", "product", true],
-    ["model", "型号/规格", "text", false],
+    ["model", "设备型号/规格", "model", true],
     ["category", "类别", "select", true, ["手表", "表带/配件", "智能套装", "床垫", "平台服务", "组合方案", "样机", "其他"]],
     ["safeStock", "安全库存", "number", true],
     ["stock", "当前库存", "number", true],
@@ -161,7 +162,7 @@ const moduleFields = {
     ["code", "产品编码", "text", true],
     ["name", "产品名称", "text", true],
     ["category", "类别", "select", true, ["手表", "表带/配件", "智能套装", "床垫", "样机", "平台服务", "组合方案", "其他"]],
-    ["model", "默认型号/规格", "text", false],
+    ["model", "设备型号/规格", "text", true],
     ["unit", "单位", "text", false],
     ["safeStock", "默认安全库存", "number", false],
     ["supplierId", "默认供应商", "supplier", false],
@@ -193,6 +194,7 @@ const moduleFields = {
     ["deliveryId", "关联出库单", "delivery", true],
     ["customer", "客户", "text", true],
     ["product", "产品", "product", true],
+    ["model", "设备型号/规格", "model", true],
     ["quantity", "数量", "number", false],
     ["trainingAt", "培训日期", "datetime-local", false],
     ["trainer", "培训人员", "user", true],
@@ -210,6 +212,7 @@ const moduleFields = {
     ["customer", "客户", "text", true],
     ["phone", "联系方式", "text", false],
     ["product", "产品", "product", true],
+    ["model", "设备型号/规格", "model", true],
     ["deviceNo", "SN/IMEI", "text", false],
     ["type", "问题类型", "select", true, ["咨询", "故障", "换货", "退货", "配置", "平台", "物流", "其他"]],
     ["priority", "紧急程度", "select", true, ["紧急", "高", "中", "低"]],
@@ -266,13 +269,13 @@ const moduleFields = {
 };
 
 const tableColumns = {
-  leads: ["code", "customer", "product", "quantity", "stage", "owner", "dueDate", "status"],
-  salesOrders: ["code", "customer", "product", "quantity", "totalAmount", "deliveryDate", "owner", "status"],
-  purchases: ["code", "type", "product", "quantity", "supplierId", "lockedDate", "owner", "status"],
-  inventory: ["sku", "name", "category", "stock", "locked", "available", "safeStock", "inTransit", "statusText"],
+  leads: ["code", "customer", "product", "model", "quantity", "stage", "owner", "dueDate", "status"],
+  salesOrders: ["code", "customer", "product", "model", "quantity", "totalAmount", "deliveryDate", "owner", "status"],
+  purchases: ["code", "type", "product", "model", "quantity", "supplierId", "lockedDate", "owner", "status"],
+  inventory: ["sku", "name", "model", "category", "stock", "locked", "available", "safeStock", "inTransit", "statusText"],
   deliveries: ["code", "project", "type", "inventoryId", "quantity", "owner", "status"],
-  trainings: ["code", "customer", "product", "quantity", "trainer", "trainingAt", "acceptanceResult", "status"],
-  aftersales: ["code", "customer", "product", "type", "priority", "owner", "promiseAt", "status"],
+  trainings: ["code", "customer", "product", "model", "quantity", "trainer", "trainingAt", "acceptanceResult", "status"],
+  aftersales: ["code", "customer", "product", "model", "type", "priority", "owner", "promiseAt", "status"],
   products: ["code", "name", "category", "model", "unit", "safeStock", "supplierId", "status"],
   suppliers: ["name", "product", "contact", "phone", "moq", "leadTime", "status"],
   notices: ["date", "title", "scope", "publisher", "owner", "dueDate", "status"],
@@ -399,17 +402,29 @@ function normalizeData(data) {
   for (const key of ["users", "suppliers", "inventory", "leads", "salesOrders", "purchases", "deliveries", "trainings", "aftersales", "notices", "inventoryLogs", "auditLogs"]) {
     if (!Array.isArray(normalized[key])) normalized[key] = [];
   }
-  normalized.inventory.forEach((item) => {
-    if (!item.productId) item.productId = findProductByLabel(normalized.products, item.name, item.model)?.id || "";
-  });
+  const findById = (productId) => normalized.products.find((product) => product.id === productId) || null;
+  const normalizeProductReference = (record, nameKey) => {
+    const linkedProduct = findById(record.productId);
+    const product = linkedProduct && (!record.model || linkedProduct.model === record.model)
+      ? linkedProduct
+      : findProductByLabel(normalized.products, record[nameKey], record.model);
+    if (!product) return;
+    record.productId = product.id;
+    if (!record.model) record.model = product.model || "";
+    if (nameKey === "name" && normalizedProductName(record[nameKey]) !== normalizedProductName(product.name)) record[nameKey] = product.name;
+  };
+  normalized.inventory.forEach((item) => normalizeProductReference(item, "name"));
   normalized.salesOrders.forEach((order) => {
-    if (!order.productId) order.productId = findProductByLabel(normalized.products, order.product, order.model)?.id || "";
+    normalizeProductReference(order, "product");
     order.totalAmount = Number(order.totalAmount || Number(order.quantity || 0) * Number(order.unitPrice || 0));
   });
   normalized.purchases.forEach((purchase) => {
-    if (!purchase.productId) purchase.productId = findProductByLabel(normalized.products, purchase.product, purchase.model)?.id || "";
+    normalizeProductReference(purchase, "product");
     // 旧版“待采购确认”不够明确，统一迁移为“已下单”。
     if (purchase.status === "待采购确认") purchase.status = "已下单";
+  });
+  ["leads", "trainings", "aftersales"].forEach((collection) => {
+    normalized[collection].forEach((record) => normalizeProductReference(record, "product"));
   });
   normalized.purchases.forEach((purchase) => {
     if (!purchase.sourceSalesOrderId || purchase.status === "已取消") return;
@@ -431,10 +446,12 @@ function normalizedProductName(value) {
 
 function findProductByLabel(products, name, model = "") {
   const target = normalizedProductName(name);
-  return (products || []).find((product) => {
+  const candidates = (products || []).filter((product) => {
     const candidate = normalizedProductName(product.name);
-    return candidate === target || (candidate.length > 1 && (candidate.includes(target) || target.includes(candidate))) || (product.model && model && product.model === model);
+    return candidate === target || (candidate.length > 1 && target.length > 1 && (candidate.includes(target) || target.includes(candidate)));
   });
+  if (model) return candidates.find((product) => product.model === model) || (products || []).find((product) => product.model === model) || null;
+  return candidates[0] || null;
 }
 
 function getInitialData() {
@@ -650,7 +667,8 @@ function supplierName(id) {
 }
 
 function inventoryName(id) {
-  return db.inventory.find((i) => i.id === id)?.name || id || "-";
+  const item = db.inventory.find((inventory) => inventory.id === id);
+  return item ? `${item.name}${item.model ? ` / ${item.model}` : ""}` : id || "-";
 }
 
 function productOptions(currentValue = "") {
@@ -674,6 +692,35 @@ function productById(productId) {
   return db.products.find((product) => product.id === productId) || null;
 }
 
+function productModelsForName(name, currentValue = "") {
+  const target = normalizedProductName(name);
+  const models = [];
+  const add = (model) => {
+    const value = String(model || "").trim();
+    if (value && !models.includes(value)) models.push(value);
+  };
+  (db.products || []).filter((product) => {
+    const candidate = normalizedProductName(product.name);
+    return candidate === target || (candidate.length > 1 && target.length > 1 && (candidate.includes(target) || target.includes(candidate)));
+  }).forEach((product) => add(product.model));
+  if (!models.length) add(currentValue);
+  return models;
+}
+
+function inventoryLabel(item) {
+  return `${item.name}${item.model ? ` / ${item.model}` : ""}（可用 ${availableStock(item)}）`;
+}
+
+function inventoryOptionsForVariant(productName = "", model = "") {
+  const product = findProductByLabel(db.products, productName, model);
+  return (db.inventory || []).filter((item) => {
+    if (product?.id) return item.productId === product.id;
+    if (!productName) return true;
+    if (normalizedProductName(item.name) !== normalizedProductName(productName)) return false;
+    return !model || item.model === model;
+  });
+}
+
 function inventoryForProduct(productName, productId = "", model = "") {
   if (productId) {
     const byId = db.inventory.find((item) => item.productId === productId);
@@ -684,7 +731,8 @@ function inventoryForProduct(productName, productId = "", model = "") {
     if (product?.id && item.productId === product.id) return true;
     const itemName = normalizedProductName(item.name);
     const target = normalizedProductName(productName);
-    return itemName === target || (itemName.length > 1 && (itemName.includes(target) || target.includes(itemName)));
+    const nameMatches = itemName === target || (itemName.length > 1 && target.length > 1 && (itemName.includes(target) || target.includes(itemName)));
+    return nameMatches && (!model || item.model === model);
   }) || null;
 }
 
@@ -1550,7 +1598,11 @@ function renderField(moduleId, [key, label, type, required, options], record) {
     const allowedOptions = key === "status" ? allowedWorkflowStatusOptions(moduleId, value, options) : options;
     input = `<select ${common}>${allowedOptions.map((op) => `<option ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
   } else if (type === "product") {
-    input = `<select ${common}>${productOptions(value).map((op) => `<option value="${escapeHtml(op)}" ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
+    input = `<select ${common}><option value="">请选择产品</option>${productOptions(value).map((op) => `<option value="${escapeHtml(op)}" ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
+  } else if (type === "model") {
+    const productName = moduleId === "inventory" ? record.name : record.product;
+    const models = productModelsForName(productName, value);
+    input = `<select ${common} data-model-select><option value="">请选择型号/规格</option>${models.map((model) => `<option value="${escapeHtml(model)}" ${String(value) === model ? "selected" : ""}>${escapeHtml(model)}</option>`).join("")}</select>`;
   } else if (type === "lead") {
     input = `<select ${common}><option value="">无</option>${db.leads.map((lead) => `<option value="${lead.id}" ${value === lead.id ? "selected" : ""}>${escapeHtml(lead.code)} - ${escapeHtml(lead.customer)}</option>`).join("")}</select>`;
   } else if (type === "salesorder") {
@@ -1562,7 +1614,10 @@ function renderField(moduleId, [key, label, type, required, options], record) {
   } else if (type === "supplier") {
     input = `<select ${common}><option value="">未指定</option>${db.suppliers.map((s) => `<option value="${s.id}" ${value === s.id ? "selected" : ""}>${escapeHtml(s.name)} - ${escapeHtml(s.product)}</option>`).join("")}</select>`;
   } else if (type === "inventory") {
-    input = `<select ${common}>${db.inventory.map((i) => `<option value="${i.id}" ${value === i.id ? "selected" : ""}>${escapeHtml(i.name)}（可用 ${availableStock(i)}）</option>`).join("")}</select>`;
+    const productName = record.product || "";
+    const items = productName ? inventoryOptionsForVariant(productName, record.model) : db.inventory;
+    const emptyOption = required ? "" : `<option value="">未关联库存</option>`;
+    input = `<select ${common} data-inventory-select>${emptyOption}${items.map((item) => `<option value="${item.id}" ${value === item.id ? "selected" : ""}>${escapeHtml(inventoryLabel(item))}</option>`).join("")}</select>`;
   } else if (type === "role") {
     input = `<select ${common}>${Object.entries(roles).map(([id, role]) => `<option value="${id}" ${value === id ? "selected" : ""}>${role.name}</option>`).join("")}</select>`;
   } else if (type === "multirole") {
@@ -1620,6 +1675,7 @@ function collectModulePermissions(formData) {
 function bindModal() {
   document.querySelectorAll("[data-close-modal]").forEach((btn) => btn.addEventListener("click", closeModal));
   bindSalesOrderAmountCalculation();
+  bindProductVariantLinkage();
   bindInventoryProductAutofill();
   document.getElementById("recordForm").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -1642,7 +1698,7 @@ function bindModal() {
         next[key] = formData.get(key);
       }
     });
-    if (["salesOrders", "purchases", "trainings"].includes(moduleId)) {
+    if (["leads", "salesOrders", "purchases", "trainings", "aftersales"].includes(moduleId)) {
       next.productId = findProductByLabel(db.products, next.product, next.model)?.id || "";
     }
     if (moduleId === "inventory") {
@@ -1702,6 +1758,37 @@ function bindSalesOrderAmountCalculation() {
   totalAmount.addEventListener("input", () => {
     state.editing.record.totalAmountManual = true;
   });
+}
+
+function bindProductVariantLinkage() {
+  const moduleId = state.editing?.moduleId;
+  if (!moduleId || moduleId === "products") return;
+  const form = document.getElementById("recordForm");
+  const productField = form?.elements.namedItem(moduleId === "inventory" ? "name" : "product");
+  const modelField = form?.elements.namedItem("model");
+  if (!form || !productField || !modelField || modelField.tagName !== "SELECT") return;
+  const inventoryField = form.elements.namedItem("inventoryId");
+
+  const refreshInventory = () => {
+    if (!inventoryField || inventoryField.tagName !== "SELECT") return;
+    const selectedId = inventoryField.value;
+    const items = inventoryOptionsForVariant(productField.value, modelField.value);
+    const optional = !inventoryField.required;
+    inventoryField.innerHTML = `${optional ? '<option value="">未关联库存</option>' : ""}${items.map((item) => `<option value="${item.id}">${escapeHtml(inventoryLabel(item))}</option>`).join("")}`;
+    if (items.some((item) => item.id === selectedId)) inventoryField.value = selectedId;
+    else if (!optional && items[0]) inventoryField.value = items[0].id;
+  };
+  const refreshModels = () => {
+    const selectedModel = modelField.value;
+    const models = productModelsForName(productField.value, selectedModel);
+    modelField.innerHTML = `<option value="">请选择型号/规格</option>${models.map((model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`).join("")}`;
+    if (models.includes(selectedModel)) modelField.value = selectedModel;
+    else if (models[0]) modelField.value = models[0];
+    refreshInventory();
+  };
+  productField.addEventListener("change", refreshModels);
+  modelField.addEventListener("change", refreshInventory);
+  refreshModels();
 }
 
 function bindInventoryProductAutofill() {
@@ -1942,6 +2029,14 @@ function validateRecordData(moduleId, record) {
       return { ok: false, message: "退库、维修、换货流程必须填写“对应库存”和大于 0 的“涉及数量”" };
     }
   }
+  if (moduleId === "products") {
+    const duplicateVariant = (db.products || []).find((product) => product.id !== record.id
+      && normalizedProductName(product.name) === normalizedProductName(record.name)
+      && String(product.model || "").trim() === String(record.model || "").trim());
+    if (duplicateVariant) return { ok: false, message: `产品字典中已有“${record.name} / ${record.model}”，请不要重复新增` };
+    const duplicateCode = (db.products || []).find((product) => product.id !== record.id && product.code === record.code);
+    if (duplicateCode) return { ok: false, message: `产品编码“${record.code}”已存在，请使用新的编码` };
+  }
   return { ok: true };
 }
 
@@ -2121,7 +2216,7 @@ function openSalesOrderFromLead(leadId) {
     phone: lead.phone,
     product: lead.product,
     productId: product?.id || "",
-    model: product?.model || "",
+    model: lead.model || product?.model || "",
     quantity: Number(lead.quantity || 0),
     unitPrice: 0,
     totalAmount: 0,
@@ -2408,6 +2503,7 @@ function openTrainingFromDelivery(deliveryId) {
     customer: delivery.project,
     product: item?.name || order?.product || "",
     productId: item?.productId || order?.productId || "",
+    model: item?.model || order?.model || "",
     quantity: Number(delivery.quantity || 0),
     trainer: state.currentUser.id,
     status: "待培训",
