@@ -1,5 +1,6 @@
 const APP_KEY = "xlx_ops_mvp_v1";
 const SESSION_KEY = "xlx_ops_session_v1";
+const ACTIVITY_READ_KEY = "xlx_ops_activity_read_v1";
 const SERVER_MODE = location.protocol.startsWith("http");
 const PUBLIC_PRODUCTION = true;
 
@@ -598,6 +599,20 @@ function actionName(action) {
   return ({ create: "新增", update: "编辑", delete: "删除", cancel: "作废", approve: "审批", inbound: "入库", outbound: "出库", purchase_received: "采购到货", rollback: "回撤", merge: "合并" })[action] || action || "操作";
 }
 
+function activityReadKey() {
+  return `${ACTIVITY_READ_KEY}:${state.currentUser?.id || "anonymous"}`;
+}
+
+function hasUnreadActivity() {
+  const lastReadAt = localStorage.getItem(activityReadKey());
+  const lastReadTime = lastReadAt ? Date.parse(lastReadAt) : 0;
+  return (db.auditLogs || []).some((log) => Date.parse(log.createdAt || 0) > lastReadTime);
+}
+
+function markActivitiesRead() {
+  localStorage.setItem(activityReadKey(), nowIso());
+}
+
 function renderActivityPanel() {
   if (!state.activityOpen) return "";
   const allActivities = db.auditLogs || [];
@@ -959,7 +974,7 @@ function renderApp() {
           </div>
           <div class="topbar-actions">
             <div class="activity-wrap">
-              <button class="bell-btn" type="button" data-action="toggle-activity" aria-label="查看流程动态" title="流程动态"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span class="bell-dot"></span></button>
+              <button class="bell-btn" type="button" data-action="toggle-activity" aria-label="查看流程动态${hasUnreadActivity() ? "（有未读）" : ""}" title="流程动态"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>${hasUnreadActivity() ? '<span class="bell-dot"></span>' : ""}</button>
               ${renderActivityPanel()}
             </div>
             <span class="role-pill">${state.currentUser.name} · ${roleName(state.currentUser.role)}</span>
@@ -1008,7 +1023,10 @@ function bindGlobalActions() {
   });
   document.querySelector('[data-action="toggle-activity"]')?.addEventListener("click", () => {
     state.activityOpen = !state.activityOpen;
-    if (state.activityOpen) state.activityLimit = 10;
+    if (state.activityOpen) {
+      state.activityLimit = 10;
+      markActivitiesRead();
+    }
     render();
   });
   document.querySelector('[data-action="load-more-activity"]')?.addEventListener("click", () => {
