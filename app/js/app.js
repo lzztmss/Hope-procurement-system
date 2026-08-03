@@ -647,6 +647,12 @@ async function loadData() {
           const inventoryPayload = await inventoryResponse.json();
           data.inventory = inventoryPayload.inventory || data.inventory;
         }
+        const documentModules = ["salesOrders", "purchases", "deliveries", "trainings", "aftersales", "leads"];
+        const documentResponses = await Promise.all(documentModules.map(async (moduleId) => {
+          const moduleResponse = await fetch(`/api/${moduleId}`, { cache: "no-store", credentials: "same-origin" });
+          return moduleResponse.ok ? [moduleId, (await moduleResponse.json())[moduleId]] : null;
+        }));
+        documentResponses.filter(Boolean).forEach(([moduleId, records]) => { data[moduleId] = records || data[moduleId]; });
         localStorage.setItem(APP_KEY, JSON.stringify(data));
         return data;
       }

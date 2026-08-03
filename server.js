@@ -5,6 +5,7 @@ const { createSessionToken, verifyPassword } = require("./lib/security");
 const { adjustInventory, adjustInventoryBatch } = require("./lib/inventory-service");
 const { sendJson, sendText, readBody, parseCookies } = require("./lib/http");
 const { listInventory } = require("./lib/inventory-repository");
+const { listDocuments } = require("./lib/document-repository");
 const {
   initializeDatabase,
   readState,
@@ -215,6 +216,14 @@ async function handleApi(req, res) {
       const user = await requireUser(req, res);
       if (!user) return;
       sendJson(res, 200, { ok: true, inventory: await listInventory() });
+      return;
+    }
+    const documentRoute = req.url.match(/^\/api\/(salesOrders|purchases|deliveries|trainings|aftersales|leads)$/);
+    if (req.method === "GET" && documentRoute) {
+      const user = await requireUser(req, res);
+      if (!user) return;
+      const kind = documentRoute[1];
+      sendJson(res, 200, { ok: true, [kind]: await listDocuments(kind) });
       return;
     }
     const inventoryAdjustment = req.url.match(/^\/api\/inventory\/([^/]+)\/adjust$/);
