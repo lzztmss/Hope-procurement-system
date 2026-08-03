@@ -642,6 +642,11 @@ async function loadData() {
       const response = await fetch("/api/db", { cache: "no-store", credentials: "same-origin" });
       if (response.ok) {
         const data = normalizeData(await response.json());
+        const inventoryResponse = await fetch("/api/inventory", { cache: "no-store", credentials: "same-origin" });
+        if (inventoryResponse.ok) {
+          const inventoryPayload = await inventoryResponse.json();
+          data.inventory = inventoryPayload.inventory || data.inventory;
+        }
         localStorage.setItem(APP_KEY, JSON.stringify(data));
         return data;
       }
