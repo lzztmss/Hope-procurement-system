@@ -35,8 +35,10 @@ const roles = {
   },
   purchase: {
     name: "采购",
-    scope: "本部门",
-    modules: ["dashboard", "salesOrders", "purchases", "inventory", "products", "suppliers", "notices"],
+    // 采购需要处理跨部门推送来的采购、交付、培训和售后事项；可见模块内统一看全部记录。
+    scope: "全部",
+    // 已确认：采购不看线索、销售订单；其余业务模块均可编辑处理。
+    modules: ["dashboard", "purchases", "inventory", "deliveries", "trainings", "aftersales", "products", "suppliers", "notices"],
     actions: ["view", "create", "edit", "export"],
   },
   warehouse: {
@@ -95,14 +97,19 @@ const moduleFields = {
     ["contact", "联系人", "text", true],
     ["phone", "联系电话", "text", true],
     ["product", "需求产品", "product", true],
-    ["model", "设备型号/规格", "model", true],
+    ["model", "设备型号/规格", "model", false],
     ["quantity", "预计数量", "number", false],
     ["projectType", "项目类型", "select", true, ["投标", "直采", "送样", "零售", "合作洽谈", "售后带单"]],
-    ["stage", "商机阶段", "select", true, ["初步咨询", "需求确认", "方案/报价", "投标中", "合同推进", "已成交", "暂停/丢单"]],
+    ["stage", "商机阶段", "select", true, ["初步咨询", "需求确认", "方案/报价", "投标中", "商务谈判", "合同推进", "已成交", "暂停/丢单"]],
     ["owner", "跟进人", "user", true],
     ["nextAction", "下一步动作", "textarea", false],
     ["dueDate", "截止日期", "date", false],
-    ["status", "状态", "select", true, ["待分派", "跟进中", "待客户反馈", "待报价", "待投标", "已成交", "已关闭"]],
+    ["immediateDelivery", "是否需要即时出库", "select", true, ["不需要", "需要"]],
+    ["deliveryReceiver", "送样收货人", "text", false],
+    ["deliveryAddress", "送样地址/项目", "text", false],
+    ["deliveryMethod", "送样发货方式", "select", false, ["快递", "自送", "客户自提", "上门安装", "其他"]],
+    ["deliveryId", "关联送样出库单", "linkeddelivery", false],
+    ["status", "状态", "select", true, ["待分派", "跟进中", "待客户反馈", "待报价", "待投标", "已成交", "已转销售订单", "已关闭"]],
     ["remark", "备注", "textarea", false],
   ],
   salesOrders: [
@@ -112,7 +119,7 @@ const moduleFields = {
     ["contact", "联系人", "text", false],
     ["phone", "联系电话", "text", false],
     ["product", "产品名称", "product", true],
-    ["model", "设备型号/规格", "model", true],
+    ["model", "设备型号/规格", "model", false],
     ["quantity", "数量", "number", true],
     ["unitPrice", "单价", "number", false],
     ["totalAmount", "订单金额", "number", false],
@@ -120,7 +127,7 @@ const moduleFields = {
     ["contractFile", "合同附件说明", "text", false],
     ["deliveryDate", "预计交付日期", "date", false],
     ["owner", "业务负责人", "user", true],
-    ["status", "订单状态", "select", true, ["草稿", "待销售审批", "待库存确认", "待采购审批", "待采购到货", "待出库", "已出库", "已完成", "已取消"]],
+    ["status", "订单状态", "select", true, ["草稿", "待销售审批", "待采购审批", "待采购到货", "待出库", "已出库", "已完成", "已取消"]],
     ["remark", "备注", "textarea", false],
   ],
   purchases: [
@@ -129,7 +136,7 @@ const moduleFields = {
     ["requester", "提交人", "user", true],
     ["type", "需求类型", "select", true, ["大宗采购", "项目采购", "临时采购", "补库采购", "售后换货"]],
     ["product", "产品名称", "product", true],
-    ["model", "设备型号/规格", "model", true],
+    ["model", "设备型号/规格", "model", false],
     ["quantity", "数量", "number", true],
     ["contractSigned", "合同已签", "select", true, ["是", "否", "不适用"]],
     ["project", "对应客户/项目", "text", false],
@@ -144,9 +151,10 @@ const moduleFields = {
     ["remark", "备注", "textarea", false],
   ],
   inventory: [
-    ["sku", "SKU", "text", true],
+    ["sku", "SKU/货号", "inventorysku", true],
     ["name", "产品名称", "product", true],
     ["model", "设备型号/规格", "model", true],
+    ["sortOrder", "同类规格排序（数字越小越靠前）", "number", false],
     ["category", "类别", "select", true, ["手表", "表带/配件", "智能套装", "床垫", "平台服务", "组合方案", "样机", "其他"]],
     ["safeStock", "安全库存", "number", true],
     ["stock", "当前库存", "number", true],
@@ -159,10 +167,11 @@ const moduleFields = {
     ["remark", "备注", "textarea", false],
   ],
   products: [
-    ["code", "产品编码（系统自动生成）", "autocode", true],
+    ["sku", "SKU/货号（首次可修改）", "productsku", true],
     ["name", "产品名称（可选已有或输入新名称）", "productname", true],
     ["category", "类别", "select", true, ["手表", "表带/配件", "智能套装", "床垫", "样机", "平台服务", "组合方案", "其他"]],
     ["model", "设备型号/规格", "text", true],
+    ["sortOrder", "库存大类排序（未填时取规格最小排序）", "number", false],
     ["unit", "单位", "text", false],
     ["safeStock", "默认安全库存", "number", false],
     ["supplierId", "默认供应商", "supplier", false],
@@ -173,6 +182,7 @@ const moduleFields = {
     ["code", "出库单号", "text", true],
     ["date", "日期", "date", true],
     ["project", "客户/项目", "text", true],
+    ["address", "收货地址", "text", false],
     ["type", "出库类型", "select", true, ["送样", "销售交付", "老板赠送", "售后换货", "培训演示", "其他"]],
     ["inventoryId", "产品", "inventory", true],
     ["quantity", "数量", "number", true],
@@ -190,11 +200,10 @@ const moduleFields = {
   ],
   trainings: [
     ["code", "培训验收单号", "text", true],
-    ["salesOrderId", "关联销售订单", "salesorder", false],
-    ["deliveryId", "关联出库单", "delivery", true],
+    ["deliveryId", "关联出库单（可选）", "delivery", false],
     ["customer", "客户", "text", true],
     ["product", "产品", "product", true],
-    ["model", "设备型号/规格", "model", true],
+    ["model", "设备型号/规格", "model", false],
     ["quantity", "数量", "number", false],
     ["trainingAt", "培训日期", "datetime-local", false],
     ["trainer", "培训人员", "user", true],
@@ -212,7 +221,7 @@ const moduleFields = {
     ["customer", "客户", "text", true],
     ["phone", "联系方式", "text", false],
     ["product", "产品", "product", true],
-    ["model", "设备型号/规格", "model", true],
+    ["model", "设备型号/规格", "model", false],
     ["deviceNo", "SN/IMEI", "text", false],
     ["type", "问题类型", "select", true, ["咨询", "故障", "换货", "退货", "配置", "平台", "物流", "其他"]],
     ["priority", "紧急程度", "select", true, ["紧急", "高", "中", "低"]],
@@ -221,7 +230,6 @@ const moduleFields = {
     ["techOwner", "二级技术人", "user", false],
     ["supplierId", "厂家联系人", "supplier", false],
     ["quantity", "涉及数量", "number", false],
-    ["inventoryId", "对应库存", "inventory", false],
     ["status", "当前状态", "select", true, ["待受理", "处理中", "待技术判断", "待厂家反馈", "待客户反馈", "待收货", "待质检", "维修中", "待换货", "换货待出库", "已退库", "已报废", "已换货", "已解决", "已关闭"]],
     ["nextAction", "下一步", "textarea", false],
     ["promiseAt", "承诺反馈时间", "datetime-local", false],
@@ -272,11 +280,11 @@ const tableColumns = {
   leads: ["code", "customer", "product", "model", "quantity", "stage", "owner", "dueDate", "status"],
   salesOrders: ["code", "customer", "product", "model", "quantity", "totalAmount", "deliveryDate", "owner", "status"],
   purchases: ["code", "type", "product", "model", "quantity", "supplierId", "lockedDate", "owner", "status"],
-  inventory: ["sku", "name", "model", "category", "stock", "locked", "available", "safeStock", "inTransit", "statusText"],
+  inventory: ["sku", "model", "stock", "locked", "available", "safeStock", "inTransit", "statusText"],
   deliveries: ["code", "project", "type", "inventoryId", "quantity", "owner", "status"],
   trainings: ["code", "customer", "product", "model", "quantity", "trainer", "trainingAt", "acceptanceResult", "status"],
   aftersales: ["code", "customer", "product", "model", "type", "priority", "owner", "promiseAt", "status"],
-  products: ["code", "name", "category", "model", "unit", "safeStock", "supplierId", "status"],
+  products: ["sku", "name", "category", "model", "unit", "safeStock", "supplierId", "status"],
   suppliers: ["name", "product", "contact", "phone", "moq", "leadTime", "status"],
   notices: ["date", "title", "scope", "publisher", "owner", "dueDate", "status"],
   users: ["name", "department", "role", "scope", "status", "phone"],
@@ -297,7 +305,7 @@ const columnLabels = {
   type: "类型",
   supplierId: "供应商",
   lockedDate: "锁定交期",
-  sku: "SKU",
+  sku: "SKU/货号",
   name: "名称",
   category: "类别",
   stock: "当前库存",
@@ -343,6 +351,8 @@ const state = {
   inventoryLogSearch: "",
   inventoryLogPage: 1,
   inventoryLogPageSize: 20,
+  bulkDelete: { moduleId: null, ids: [], mode: null },
+  forceDelete: null,
 };
 
 function uid(prefix) {
@@ -394,6 +404,88 @@ function defaultProducts() {
   ];
 }
 
+const skuCategoryPrefixes = {
+  "手表": "WATCH",
+  "表带/配件": "STRAP",
+  "智能套装": "KIT",
+  "床垫": "BED",
+  "平台服务": "SERVICE",
+  "组合方案": "SET",
+  "样机": "DEMO",
+  "其他": "ITEM",
+};
+
+function skuVariantToken(model = "") {
+  const text = String(model).toUpperCase();
+  if (text.includes("4G")) return "4G";
+  if (text.includes("WIFI") || text.includes("WI-FI")) return "WIFI";
+  if (text.includes("黑")) return "BLK";
+  if (text.includes("红")) return "RED";
+  if (text.includes("白")) return "WHT";
+  if (text.includes("标准")) return "STD";
+  const latin = text.replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return latin.slice(0, 12) || "STD";
+}
+
+function nextSku(category, model, usedSkus = [], currentSku = "") {
+  const prefix = skuCategoryPrefixes[category] || "ITEM";
+  const base = `${prefix}-${skuVariantToken(model)}`;
+  const occupied = new Set(usedSkus.filter((sku) => sku && sku !== currentSku));
+  let sequence = 1;
+  while (occupied.has(`${base}-${String(sequence).padStart(3, "0")}`)) sequence += 1;
+  return `${base}-${String(sequence).padStart(3, "0")}`;
+}
+
+function suggestedProductSku(product = {}, currentSku = "") {
+  return nextSku(product.category, product.model, (db?.products || []).map((item) => item.sku), currentSku);
+}
+
+function suggestedInventorySku(item = {}, currentSku = "") {
+  const product = item.productId ? productById(item.productId) : findProductByLabel(db?.products || [], item.name, item.model);
+  if (product?.sku) return product.sku;
+  return nextSku(item.category, item.model, (db?.inventory || []).map((inventory) => inventory.sku), currentSku);
+}
+
+function migrateReadableSkus(normalized) {
+  if (Number(normalized.meta?.skuVersion || 0) >= 1) return false;
+  const usedProductSkus = [];
+  normalized.products.forEach((product) => {
+    // 迁移只补充旧数据中缺失的货号。人工维护过的货号是业务标识，绝不能在页面加载时被自动规则改写。
+    product.sku = String(product.sku || "").trim() || nextSku(product.category, product.model, usedProductSkus);
+    usedProductSkus.push(product.sku);
+  });
+  normalized.inventory.forEach((item) => {
+    const product = normalized.products.find((candidate) => candidate.id === item.productId)
+      || findProductByLabel(normalized.products, item.name, item.model);
+    item.sku = String(item.sku || "").trim()
+      || product?.sku
+      || nextSku(item.category, item.model, normalized.inventory.map((inventory) => inventory.sku), item.sku);
+  });
+  normalized.meta.skuVersion = 1;
+  return true;
+}
+
+function syncInventoryIdentityFromProduct(item, product) {
+  if (!item || !product) return false;
+  const before = [item.productId, item.sku, item.name, item.model, item.category].join("\u0001");
+  item.productId = product.id;
+  item.sku = product.sku || item.sku;
+  item.name = product.name;
+  item.model = product.model;
+  item.category = product.category;
+  return before !== [item.productId, item.sku, item.name, item.model, item.category].join("\u0001");
+}
+
+function syncLinkedInventoryIdentities(normalized) {
+  let changed = false;
+  normalized.inventory.forEach((item) => {
+    const product = normalized.products.find((candidate) => candidate.id === item.productId)
+      || findProductByLabel(normalized.products, item.name, item.model);
+    if (product && syncInventoryIdentityFromProduct(item, product)) changed = true;
+  });
+  return changed;
+}
+
 function normalizeData(data) {
   const normalized = data || {};
   if (!Array.isArray(normalized.products)) {
@@ -402,6 +494,10 @@ function normalizeData(data) {
   for (const key of ["users", "suppliers", "inventory", "leads", "salesOrders", "purchases", "deliveries", "trainings", "aftersales", "notices", "inventoryLogs", "auditLogs"]) {
     if (!Array.isArray(normalized[key])) normalized[key] = [];
   }
+  ["salesOrders", "purchases", "deliveries"].forEach((collection) => {
+    normalized[collection].forEach((record) => applyLegacyItemSummary(record));
+  });
+  const inventoryIdentitySynced = syncLinkedInventoryIdentities(normalized);
   const findById = (productId) => normalized.products.find((product) => product.id === productId) || null;
   const normalizeProductReference = (record, nameKey) => {
     const linkedProduct = findById(record.productId);
@@ -435,7 +531,37 @@ function normalizeData(data) {
     // 当前未提供“部分到货”流程；确认到货即代表该订单的缺货已补齐。
     if (purchase.status === "已到货") order.status = "待出库";
   });
+  // 旧数据中“已成交 + 已关闭”常表示已转成订单；统一为可追溯的转单状态。
+  const activeLeadOrderIds = new Set(normalized.salesOrders
+    .filter((order) => order.leadId && order.status !== "已取消")
+    .map((order) => order.leadId));
+  normalized.leads.forEach((lead) => {
+    // 旧线索默认不创建送样出库申请，避免升级后意外推送历史线索。
+    if (!lead.immediateDelivery) lead.immediateDelivery = "不需要";
+    if (activeLeadOrderIds.has(lead.id) && lead.stage === "已成交" && lead.status === "已关闭") {
+      lead.status = "已转销售订单";
+      lead.closedAt = "";
+    }
+  });
   if (!normalized.meta) normalized.meta = { version: 1, createdAt: nowIso() };
+  // 采购岗位按已确认的岗位矩阵迁移一次：不看线索/销售订单，
+  // 其余模块可编辑，并补齐出库交付的确认、配送、签收、验收按钮。
+  if (Number(normalized.meta.permissionTemplateVersion || 0) < 1) {
+    const purchaseRole = roles.purchase;
+    const purchaseModules = Object.fromEntries(purchaseRole.modules.map((moduleId) => [moduleId, [...purchaseRole.actions]]));
+    const purchaseWorkflows = workflowActions
+      .filter((action) => action.defaultRoles.includes("purchase"))
+      .map((action) => action.id);
+    normalized.users.filter((user) => user.role === "purchase").forEach((user) => {
+      user.scope = "全部";
+      user.modulePermissions = purchaseModules;
+      user.workflowActions = purchaseWorkflows;
+    });
+    normalized.meta.permissionTemplateVersion = 1;
+  }
+  const skuMigrated = migrateReadableSkus(normalized);
+  normalized.meta.skuMigrated = Boolean(normalized.meta.skuMigrated || skuMigrated);
+  normalized.meta.inventoryIdentitySynced = Boolean(normalized.meta.inventoryIdentitySynced || inventoryIdentitySynced);
   normalized.meta.version = Math.max(Number(normalized.meta.version || 1), 2);
   return normalized;
 }
@@ -519,13 +645,11 @@ async function loadData() {
         localStorage.setItem(APP_KEY, JSON.stringify(data));
         return data;
       }
-      if (PUBLIC_PRODUCTION && response.status === 401) {
-        const data = normalizeData({ ...getInitialData(), users: state.serverUser ? [state.serverUser] : [] });
-        localStorage.setItem(APP_KEY, JSON.stringify(data));
-        return data;
-      }
+      // 公网/测试模式下，绝不能在登录失效时回退到演示数据；那会把真实页面伪装成旧数据。
+      if (PUBLIC_PRODUCTION) return normalizeData({ products: [], users: [] });
     } catch {
-      // Fall through to local cache when the server is not available.
+      // 公网/测试模式下服务不可用时直接回到登录页，避免把本机缓存误当成真实业务数据。
+      if (PUBLIC_PRODUCTION) return normalizeData({ products: [], users: [] });
     }
   }
   try {
@@ -550,16 +674,32 @@ let db = null;
 function saveData() {
   localStorage.setItem(APP_KEY, JSON.stringify(db));
   if (SERVER_MODE) {
+    const payload = state.forceDelete
+      ? { ...db, meta: { ...(db.meta || {}), forceDelete: state.forceDelete } }
+      : db;
+    state.forceDelete = null;
     fetch("/api/db", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify(db),
+      body: JSON.stringify(payload),
     }).then((response) => {
+      if (response.ok) {
+        return response.json().then((result) => {
+          if (Number.isFinite(Number(result.revision))) {
+            db.meta = { ...(db.meta || {}), revision: Number(result.revision) };
+            localStorage.setItem(APP_KEY, JSON.stringify(db));
+          }
+        });
+      }
       if (PUBLIC_PRODUCTION && response.status === 401) {
         state.serverUser = null;
         toast("登录已过期，请重新登录");
         render();
+      } else if (response.status === 409) {
+        toast("数据已在其他页面更新。请刷新页面后再继续操作。");
+      } else if (!response.ok) {
+        toast("保存被服务器拒绝：货号或删除操作需要系统管理员权限");
       }
     }).catch(() => toast("服务器保存失败，请检查网络或联系管理员"));
   }
@@ -736,6 +876,82 @@ function inventoryForProduct(productName, productId = "", model = "") {
   }) || null;
 }
 
+function documentItems(record = []) {
+  const source = Array.isArray(record.items) && record.items.length
+    ? record.items
+    : (record.product || record.inventoryId ? [{
+      id: record.inventoryId || record.productId || uid("line"),
+      productId: record.productId || "",
+      // 初始化数据库时 db 尚未赋值；旧出库单只有库存 ID 也必须能先完成数据加载。
+      product: record.product || "",
+      model: record.model || "",
+      inventoryId: record.inventoryId || "",
+      quantity: Number(record.quantity || 0),
+      unitPrice: Number(record.unitPrice || 0),
+    }] : []);
+  return source.map((item) => ({ ...item, quantity: Number(item.quantity || 0), unitPrice: Number(item.unitPrice || 0) }));
+}
+
+const multiItemModules = new Set(["salesOrders", "purchases", "deliveries"]);
+
+function itemLabel(item = {}) {
+  return [item.product || inventoryName(item.inventoryId), item.model].filter(Boolean).join(" / ") || "未选择产品";
+}
+
+function recordItemSummary(record = {}) {
+  const items = documentItems(record);
+  if (!items.length) return "-";
+  return items.length === 1 ? itemLabel(items[0]) : `${itemLabel(items[0])} 等 ${items.length} 项`;
+}
+
+function deliveryItems(record = {}) {
+  return documentItems(record).map((item) => ({
+    ...item,
+    inventoryId: item.inventoryId || inventoryForProduct(item.product, item.productId, item.model)?.id || "",
+  }));
+}
+
+function validateDocumentItems(moduleId, record) {
+  if (!multiItemModules.has(moduleId)) return { ok: true };
+  const items = documentItems(record);
+  if (!items.length) return { ok: false, message: "请至少添加一项产品明细" };
+  for (const item of items) {
+    if (!item.product && !item.inventoryId) return { ok: false, message: "每一项都要选择产品" };
+    if (["salesOrders", "purchases"].includes(moduleId) && !item.model) return { ok: false, message: `“${item.product || "该产品"}”必须选择型号/规格，才能准确联动库存` };
+    if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0) return { ok: false, message: `“${itemLabel(item)}”的数量必须大于 0` };
+    if (moduleId === "deliveries" && !item.inventoryId) return { ok: false, message: `“${itemLabel(item)}”未找到对应库存，请先在库存台账建立该规格` };
+  }
+  return { ok: true };
+}
+
+function orderInventoryCheck(order) {
+  const shortages = [];
+  const readyItems = [];
+  documentItems(order).forEach((line) => {
+    const item = inventoryForProduct(line.product, line.productId, line.model);
+    const quantity = Number(line.quantity || 0);
+    if (!item || availableStock(item) < quantity) {
+      shortages.push({ ...line, inventoryId: item?.id || "", available: item ? availableStock(item) : 0, shortage: Math.max(0, quantity - Number(item ? availableStock(item) : 0)) });
+    } else {
+      readyItems.push({ ...line, inventoryId: item.id });
+    }
+  });
+  return { ready: shortages.length === 0, shortages, readyItems };
+}
+
+function applyLegacyItemSummary(record) {
+  const items = documentItems(record);
+  record.items = items;
+  const first = items[0] || {};
+  record.product = first.product || "";
+  record.productId = first.productId || "";
+  record.model = first.model || "";
+  record.inventoryId = first.inventoryId || "";
+  record.quantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  if (record.totalAmountManual) return;
+  record.totalAmount = items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
+}
+
 function roleName(id) {
   return roles[id]?.name || id || "-";
 }
@@ -754,7 +970,8 @@ function effectiveModulePermissions(user = state.currentUser) {
     return Object.fromEntries(modules.map((module) => [module.id, ["view", "create", "edit", "delete", "export", "config"]]));
   }
   if (user?.modulePermissions && typeof user.modulePermissions === "object" && !Array.isArray(user.modulePermissions)) {
-    return { dashboard: ["view"], ...user.modulePermissions };
+    const permissions = { dashboard: ["view"], ...user.modulePermissions };
+    return permissions;
   }
   return Object.fromEntries(role.modules.map((moduleId) => [moduleId, role.actions]));
 }
@@ -815,16 +1032,18 @@ function listRecords(moduleId) {
   return source.filter(canSeeRecord);
 }
 
+const closedStatusesByModule = {
+  leads: ["已转销售订单", "已关闭"],
+  salesOrders: ["已完成", "已取消"],
+  purchases: ["已到货", "已取消"],
+  deliveries: ["已验收", "已取消"],
+  trainings: ["已完成"],
+  aftersales: ["已退库", "已报废", "已换货", "已解决", "已关闭"],
+  notices: ["已完成"],
+};
+
 function isArchivedRecord(moduleId, record) {
-  const status = record.status || "";
-  if (moduleId === "leads") return status === "已关闭";
-  if (moduleId === "salesOrders") return ["已完成", "已取消"].includes(status);
-  if (moduleId === "purchases") return ["已到货", "已取消"].includes(status);
-  if (moduleId === "deliveries") return ["已验收", "已取消"].includes(status);
-  if (moduleId === "trainings") return status === "已完成";
-  if (moduleId === "aftersales") return ["已退库", "已报废", "已换货", "已解决", "已关闭"].includes(status);
-  if (moduleId === "notices") return status === "已完成";
-  return false;
+  return (closedStatusesByModule[moduleId] || []).includes(record.status || "");
 }
 
 function statusClass(value) {
@@ -847,6 +1066,14 @@ function inventoryStatus(item) {
   if (Number(item.stock || 0) <= 0) return "缺货";
   if (available < Number(item.safeStock || 0)) return "低于安全库存";
   return "正常";
+}
+
+function dueState(value) {
+  const date = String(value || "").slice(0, 10);
+  if (!date) return "";
+  if (date < today) return "已逾期";
+  if (date === today) return "今日到期";
+  return "";
 }
 
 function calcAlerts() {
@@ -876,11 +1103,12 @@ function calcAlerts() {
     }
   });
   db.purchases.forEach((p) => {
-    if (!["已到货", "已取消"].includes(p.status) && p.lockedDate && p.lockedDate < today) {
+    const state = !isArchivedRecord("purchases", p) && dueState(p.lockedDate);
+    if (state) {
       alerts.push({
         id: `purchase-${p.id}`,
-        level: "warn",
-        title: `${p.code} 采购交期逾期`,
+        level: state === "已逾期" ? "risk" : "warn",
+        title: `${p.code} 采购交期${state}`,
         message: `${p.product} ${p.quantity} 件，锁定交期 ${p.lockedDate}，状态 ${p.status}`,
         refModule: "purchases",
         refId: p.id,
@@ -888,11 +1116,12 @@ function calcAlerts() {
     }
   });
   db.aftersales.forEach((a) => {
-    if (!["已解决", "已关闭"].includes(a.status) && a.promiseAt && a.promiseAt.slice(0, 10) < today) {
+    const state = !isArchivedRecord("aftersales", a) && dueState(a.promiseAt);
+    if (state) {
       alerts.push({
         id: `after-${a.id}`,
-        level: a.priority === "紧急" ? "risk" : "warn",
-        title: `${a.code} 售后反馈超时`,
+        level: state === "已逾期" || a.priority === "紧急" ? "risk" : "warn",
+        title: `${a.code} 售后反馈${state}`,
         message: `${a.customer} ${a.type}，承诺反馈 ${formatDate(a.promiseAt)}，当前 ${a.status}`,
         refModule: "aftersales",
         refId: a.id,
@@ -911,22 +1140,47 @@ function calcAlerts() {
       });
     }
   });
+  db.leads.forEach((lead) => {
+    const state = !isArchivedRecord("leads", lead) && dueState(lead.dueDate);
+    if (!state) return;
+    alerts.push({
+      id: `lead-${lead.id}`,
+      level: state === "已逾期" ? "risk" : "warn",
+      title: `${lead.code} 跟进${state}`,
+      message: `${lead.customer}，下一步：${lead.nextAction || "待安排"}`,
+      refModule: "leads",
+      refId: lead.id,
+    });
+  });
+  db.notices.forEach((notice) => {
+    const state = !isArchivedRecord("notices", notice) && notice.status !== "暂停" && dueState(notice.dueDate);
+    if (!state) return;
+    alerts.push({
+      id: `notice-${notice.id}`,
+      level: state === "已逾期" ? "risk" : "warn",
+      title: `${notice.title} ${state}`,
+      message: `业务通报截止 ${formatDate(notice.dueDate)}，当前 ${notice.status}`,
+      refModule: "notices",
+      refId: notice.id,
+    });
+  });
   return alerts;
 }
 
 function dashboardStats() {
   const alerts = calcAlerts();
   return {
-    leadsActive: db.leads.filter((x) => !["已成交", "已关闭"].includes(x.status)).length,
-    purchasePending: db.purchases.filter((x) => !["已到货", "已取消"].includes(x.status)).length,
+    leadsActive: db.leads.filter((x) => !isArchivedRecord("leads", x)).length,
+    purchasePending: db.purchases.filter((x) => !isArchivedRecord("purchases", x)).length,
     inventoryRisk: alerts.filter((x) => x.refModule === "inventory").length,
-    deliveryOpen: db.deliveries.filter((x) => !["已签收", "已验收", "已取消"].includes(x.status)).length,
-    afterOpen: db.aftersales.filter((x) => !["已解决", "已关闭"].includes(x.status)).length,
+    deliveryOpen: db.deliveries.filter((x) => !isArchivedRecord("deliveries", x)).length,
+    afterOpen: db.aftersales.filter((x) => !isArchivedRecord("aftersales", x)).length,
     alerts,
   };
 }
 
 function fieldValue(moduleId, record, key) {
+  if (["salesOrders", "purchases", "deliveries"].includes(moduleId) && key === "product" && documentItems(record).length > 1) return recordItemSummary(record);
   if (moduleId === "inventory" && key === "available") return availableStock(record);
   if (moduleId === "inventory" && key === "statusText") return inventoryStatus(record);
   if (moduleId === "salesOrders" && key === "totalAmount") {
@@ -1123,6 +1377,27 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-view]").forEach((btn) => btn.addEventListener("click", () => openDetail(btn.dataset.module, btn.dataset.view)));
   document.querySelectorAll("[data-edit]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.module, btn.dataset.edit)));
   document.querySelectorAll("[data-delete]").forEach((btn) => btn.addEventListener("click", () => removeRecord(btn.dataset.module, btn.dataset.delete)));
+  document.querySelectorAll("[data-toggle-bulk-delete]").forEach((btn) => btn.addEventListener("click", () => {
+    state.bulkDelete = state.bulkDelete.moduleId === btn.dataset.toggleBulkDelete
+      ? { moduleId: null, ids: [], mode: null }
+      : { moduleId: btn.dataset.toggleBulkDelete, ids: [], mode: "safe" };
+    render();
+  }));
+  document.querySelectorAll("[data-toggle-force-delete]").forEach((btn) => btn.addEventListener("click", () => {
+    state.bulkDelete = state.bulkDelete.moduleId === btn.dataset.toggleForceDelete
+      ? { moduleId: null, ids: [], mode: null }
+      : { moduleId: btn.dataset.toggleForceDelete, ids: [], mode: "force" };
+    render();
+  }));
+  document.querySelectorAll("[data-bulk-select]").forEach((box) => box.addEventListener("change", () => {
+    const ids = new Set(state.bulkDelete.ids);
+    if (box.checked) ids.add(box.dataset.bulkSelect);
+    else ids.delete(box.dataset.bulkSelect);
+    state.bulkDelete.ids = [...ids];
+    render();
+  }));
+  document.querySelectorAll("[data-confirm-bulk-delete]").forEach((btn) => btn.addEventListener("click", () => deleteSelectedRecords(btn.dataset.confirmBulkDelete)));
+  document.querySelectorAll("[data-confirm-force-delete]").forEach((btn) => btn.addEventListener("click", () => forceDeleteSelectedRecords(btn.dataset.confirmForceDelete)));
   document.querySelectorAll("[data-drill]").forEach((btn) => btn.addEventListener("click", () => {
     state.route = btn.dataset.drill;
     state.statusFilter = btn.dataset.status || "全部";
@@ -1138,17 +1413,17 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-create-order]").forEach((btn) => btn.addEventListener("click", () => openSalesOrderFromLead(btn.dataset.createOrder)));
   document.querySelectorAll("[data-submit-order]").forEach((btn) => btn.addEventListener("click", () => submitSalesOrderForApproval(btn.dataset.submitOrder)));
   document.querySelectorAll("[data-approve-order]").forEach((btn) => btn.addEventListener("click", () => approveSalesOrder(btn.dataset.approveOrder)));
-  document.querySelectorAll("[data-check-order]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认检查库存", "系统将根据当前可用库存决定是否可以出库或需要采购审批。", () => checkSalesOrderInventory(btn.dataset.checkOrder))));
+  document.querySelectorAll("[data-check-order]").forEach((btn) => btn.addEventListener("click", () => confirmAction("重新核验库存", "系统将根据当前可用库存重新判断是否可出库；库存不足时会自动生成采购申请。", () => checkSalesOrderInventory(btn.dataset.checkOrder))));
   document.querySelectorAll("[data-create-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认生成出库单", "确认后将从该销售订单带入客户、产品和数量，生成待出库单。", () => createDeliveryFromSalesOrder(btn.dataset.createDelivery))));
-  document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认出库", "确认后将正式扣减库存，操作会写入库存流水。", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound))));
+  document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("仓库确认出库", "请确认实物、产品明细、数量及必要准备项均已核对。确认后将正式扣减库存，不能当作普通状态点击。", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound))));
   document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => openTrainingFromDelivery(btn.dataset.createTraining)));
   document.querySelectorAll("[data-start-return]").forEach((btn) => btn.addEventListener("click", () => confirmAction("发起退库处理", "确认客户将设备退回仓库处理吗？下一步由仓库确认收货。", () => startAfterSalesReturn(btn.dataset.startReturn))));
   document.querySelectorAll("[data-receive-return]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认售后收货", "确认仓库已收到退回设备吗？确认后等待质检决定入库、维修或报废。", () => receiveAfterSalesReturn(btn.dataset.receiveReturn))));
-  document.querySelectorAll("[data-return-to-stock]").forEach((btn) => btn.addEventListener("click", () => confirmAction("质检合格入库", "确认设备质检合格并加回可用库存吗？库存流水会记录来源售后单。", () => returnAfterSalesToStock(btn.dataset.returnToStock))));
+  document.querySelectorAll("[data-return-to-stock]").forEach((btn) => btn.addEventListener("click", () => openAfterSalesInventoryDialog(btn.dataset.returnToStock, "return")));
   document.querySelectorAll("[data-return-repair]").forEach((btn) => btn.addEventListener("click", () => confirmAction("转维修", "确认该设备不能直接入库，需要进入维修处理吗？", () => setAfterSalesDisposition(btn.dataset.returnRepair, "维修中", "已转维修"))));
-  document.querySelectorAll("[data-repair-to-stock]").forEach((btn) => btn.addEventListener("click", () => confirmAction("维修完成入库", "确认设备维修完成并加回可用库存吗？", () => returnAfterSalesToStock(btn.dataset.repairToStock))));
+  document.querySelectorAll("[data-repair-to-stock]").forEach((btn) => btn.addEventListener("click", () => openAfterSalesInventoryDialog(btn.dataset.repairToStock, "repair-return")));
   document.querySelectorAll("[data-return-scrap]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认报废", "确认该设备无法修复，按报废处理吗？此操作不会增加库存。", () => setAfterSalesDisposition(btn.dataset.returnScrap, "已报废", "已确认报废"))));
-  document.querySelectorAll("[data-create-replacement]").forEach((btn) => btn.addEventListener("click", () => confirmAction("生成换货出库单", "确认生成一张待出库的售后换货单吗？确认出库时才会扣减库存。", () => createReplacementDelivery(btn.dataset.createReplacement))));
+  document.querySelectorAll("[data-create-replacement]").forEach((btn) => btn.addEventListener("click", () => openAfterSalesInventoryDialog(btn.dataset.createReplacement, "replacement")));
   document.querySelectorAll("[data-approve-purchase]").forEach((btn) => btn.addEventListener("click", () => openPurchaseApproval(btn.dataset.approvePurchase)));
   document.querySelectorAll("[data-confirm-tech-purchase]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认技术通过", "确认产品规格、技术条件已核对无误吗？确认后采购单进入待采购审批。", () => confirmPurchaseTechnical(btn.dataset.confirmTechPurchase))));
   document.querySelectorAll("[data-mark-purchase-transit]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认标记在途", "确认供应商已发货、采购单正在运输途中吗？", () => markPurchaseInTransit(btn.dataset.markPurchaseTransit))));
@@ -1211,15 +1486,6 @@ function renderDashboard() {
     <section class="split-grid">
       <div class="panel">
         <div class="panel-header">
-          <h2 class="panel-title">风险预警中心</h2>
-          <span class="badge ${riskAlerts.length ? "risk" : "ok"}">${riskAlerts.length ? `${riskAlerts.length} 项严重` : "暂无严重风险"}</span>
-        </div>
-        <div class="list">
-          ${stats.alerts.length ? stats.alerts.map(renderAlert).join("") : `<div class="empty">暂无预警。系统会根据库存阈值、采购交期、售后承诺反馈和交付异常自动计算。</div>`}
-        </div>
-      </div>
-      <div class="panel">
-        <div class="panel-header">
           <h2 class="panel-title">今日待办和业务流转</h2>
         </div>
         <div class="list">
@@ -1228,6 +1494,15 @@ function renderDashboard() {
           ${renderTodo("交付培训安排", db.deliveries.filter((d) => d.training === "需要" && !["已验收", "已签收"].includes(d.status)).length, "deliveries")}
           ${renderTodo("售后技术判断", db.aftersales.filter((a) => ["待技术判断", "处理中"].includes(a.status)).length, "aftersales")}
           ${renderTodo("业务变化同步", db.notices.filter((n) => !["已完成", "暂停"].includes(n.status)).length, "notices")}
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">风险预警中心</h2>
+          <span class="badge ${riskAlerts.length ? "risk" : "ok"}">${riskAlerts.length ? `${riskAlerts.length} 项严重` : "暂无严重风险"}</span>
+        </div>
+        <div class="list">
+          ${stats.alerts.length ? stats.alerts.map(renderAlert).join("") : `<div class="empty">暂无预警。系统会根据库存阈值、在途到货、采购交期、售后反馈、线索跟进、业务通报和交付异常自动计算。</div>`}
         </div>
       </div>
     </section>
@@ -1294,7 +1569,7 @@ function projectRows() {
     const purchase = db.purchases.find((x) => x.project === name && x.status !== "已取消");
     const delivery = db.deliveries.find((x) => x.project === name && x.status !== "已取消");
     const afters = db.aftersales.filter((x) => x.customer === name);
-    const afterRisk = afters.find((x) => !["已解决", "已关闭"].includes(x.status));
+    const afterRisk = afters.find((x) => !isArchivedRecord("aftersales", x));
     return {
       project: name,
       stage: lead?.stage || "-",
@@ -1318,6 +1593,13 @@ function renderModule(moduleId) {
     const needle = state.search.toLowerCase();
     records = records.filter((r) => JSON.stringify(r).toLowerCase().includes(needle) || fields.some(([key]) => String(fieldValue(moduleId, r, key)).toLowerCase().includes(needle)));
   }
+  if (moduleId === "products") {
+    records = records.slice().sort((left, right) => recordSortOrder(left.sortOrder) - recordSortOrder(right.sortOrder)
+      || String(left.name || "").localeCompare(String(right.name || ""), "zh-CN")
+      || String(left.model || "").localeCompare(String(right.model || ""), "zh-CN"));
+  }
+  const bulkDeleteActive = state.bulkDelete.moduleId === moduleId;
+  const canForceDelete = isSuperAdmin();
   return `
     <section class="panel">
       <div class="panel-header">
@@ -1332,6 +1614,8 @@ function renderModule(moduleId) {
             ${allStatuses.map((s) => `<option ${state.statusFilter === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
           </select>
           ${can(moduleId, "create") ? `<button class="primary-btn" data-create="${moduleId}">${moduleId === "products" ? "新增产品/型号" : "新增"}</button>` : ""}
+          ${canForceDelete ? `<button class="${bulkDeleteActive && state.bulkDelete.mode === "force" ? "ghost-btn" : "danger-btn"}" data-toggle-force-delete="${moduleId}">${bulkDeleteActive && state.bulkDelete.mode === "force" ? "取消强制删除" : "强制删除"}</button>` : ""}
+          ${bulkDeleteActive && state.bulkDelete.mode === "force" ? `<button class="danger-btn" data-confirm-force-delete="${moduleId}" ${state.bulkDelete.ids.length ? "" : "disabled"}>强制删除选中（${state.bulkDelete.ids.length}）</button>` : ""}
           ${can(moduleId, "export") ? `<button class="ghost-btn" data-export="${moduleId}">导出</button>` : ""}
         </div>
       </div>
@@ -1343,39 +1627,102 @@ function renderModule(moduleId) {
 }
 
 function renderTable(moduleId, records) {
+  if (moduleId === "inventory") return renderGroupedInventoryTable(records);
   const columns = tableColumns[moduleId] || [];
+  const selectionMode = state.bulkDelete.moduleId === moduleId;
   return `<div class="table-wrap">
     <table>
       <thead>
-        <tr>${columns.map((key) => `<th>${columnLabels[key] || key}</th>`).join("")}<th>操作</th></tr>
+        <tr>${selectionMode ? "<th class=\"select-column\">选择</th>" : ""}${columns.map((key) => `<th>${columnLabels[key] || key}</th>`).join("")}<th>操作</th></tr>
       </thead>
       <tbody>
         ${records.length ? records.map((record) => `<tr class="${isArchivedRecord(moduleId, record) ? "is-archived" : ""}">
+          ${selectionMode ? `<td class="select-column"><input type="checkbox" data-bulk-select="${record.id}" ${state.bulkDelete.ids.includes(record.id) ? "checked" : ""} /></td>` : ""}
           ${columns.map((key) => renderCell(moduleId, record, key)).join("")}
           <td>${renderActions(moduleId, record)}</td>
-        </tr>`).join("") : `<tr><td colspan="${columns.length + 1}" class="empty">暂无数据</td></tr>`}
+        </tr>`).join("") : `<tr><td colspan="${columns.length + 1 + (selectionMode ? 1 : 0)}" class="empty">暂无数据</td></tr>`}
       </tbody>
     </table>
   </div>`;
 }
 
+function renderGroupedInventoryTable(records) {
+  const columns = tableColumns.inventory;
+  const selectionMode = state.bulkDelete.moduleId === "inventory";
+  const groups = new Map();
+  records.forEach((item) => {
+    const name = item.name || "未命名产品";
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(item);
+  });
+  const groupRows = [...groups.entries()]
+    .sort(([leftName, leftItems], [rightName, rightItems]) => {
+      const leftOrder = inventoryGroupSortOrder(leftItems);
+      const rightOrder = inventoryGroupSortOrder(rightItems);
+      return leftOrder - rightOrder || leftName.localeCompare(rightName, "zh-CN");
+    })
+    .map(([name, items]) => {
+      const ordered = items.slice().sort((left, right) => recordSortOrder(left.sortOrder) - recordSortOrder(right.sortOrder)
+        || String(left.model || "").localeCompare(String(right.model || ""), "zh-CN"));
+      const totalStock = ordered.reduce((sum, item) => sum + Number(item.stock || 0), 0);
+      const totalAvailable = ordered.reduce((sum, item) => sum + availableStock(item), 0);
+      const totalTransit = ordered.reduce((sum, item) => sum + Number(item.inTransit || 0), 0);
+      const category = ordered[0]?.category || "其他";
+      return `<tr class="inventory-group-row"><td colspan="${columns.length + 1 + (selectionMode ? 1 : 0)}">
+        <strong>${escapeHtml(name)}</strong><span class="inventory-group-category">${escapeHtml(category)}</span>
+        <span>合计库存 ${totalStock}</span><span>可用 ${totalAvailable}</span><span>在途 ${totalTransit}</span>
+      </td></tr>
+      ${ordered.map((record) => `<tr class="inventory-variant-row">
+        ${selectionMode ? `<td class="select-column"><input type="checkbox" data-bulk-select="${record.id}" ${state.bulkDelete.ids.includes(record.id) ? "checked" : ""} /></td>` : ""}
+        ${columns.map((key) => renderCell("inventory", record, key)).join("")}
+        <td>${renderActions("inventory", record)}</td>
+      </tr>`).join("")}`;
+    }).join("");
+  return `<div class="table-wrap">
+    <table class="inventory-grouped-table">
+      <thead><tr>${selectionMode ? "<th class=\"select-column\">选择</th>" : ""}${columns.map((key) => `<th>${columnLabels[key] || key}</th>`).join("")}<th>操作</th></tr></thead>
+      <tbody>${groupRows || `<tr><td colspan="${columns.length + 1 + (selectionMode ? 1 : 0)}" class="empty">暂无数据</td></tr>`}</tbody>
+    </table>
+  </div>`;
+}
+
+function recordSortOrder(value) {
+  const number = Number(value);
+  return value === "" || value === null || value === undefined || !Number.isFinite(number) ? Number.MAX_SAFE_INTEGER : number;
+}
+
+function inventoryGroupSortOrder(items) {
+  return Math.min(...items.map((item) => {
+    const product = productById(item.productId) || findProductByLabel(db.products, item.name, item.model);
+    const productOrder = recordSortOrder(product?.sortOrder);
+    return productOrder === Number.MAX_SAFE_INTEGER ? recordSortOrder(item.sortOrder) : productOrder;
+  }));
+}
+
 function renderCell(moduleId, record, key) {
   const raw = fieldValue(moduleId, record, key);
+  const cellClasses = [
+    moduleId === "inventory" && key === "model" ? "inventory-model-cell" : "",
+    key === "sku" ? "sku-cell" : "",
+  ].filter(Boolean);
+  const cellClass = cellClasses.length ? ` class="${cellClasses.join(" ")}"` : "";
   if (key.toLowerCase().includes("status") || key === "priority" || key === "stage") {
-    return `<td><span class="status ${statusClass(raw)}">${escapeHtml(raw)}</span></td>`;
+    return `<td${cellClass}><span class="status ${statusClass(raw)}">${escapeHtml(raw)}</span></td>`;
   }
   if (key === "available" && Number(raw) < Number(record.safeStock || 0)) {
-    return `<td><span class="status warn">${escapeHtml(raw)}</span></td>`;
+    return `<td${cellClass}><span class="status warn">${escapeHtml(raw)}</span></td>`;
   }
-  return `<td>${escapeHtml(formatDate(raw))}</td>`;
+  return `<td${cellClass}>${escapeHtml(formatDate(raw))}</td>`;
 }
 
 function renderCards(moduleId, records) {
+  const selectionMode = state.bulkDelete.moduleId === moduleId;
   return `<div class="record-cards">
     ${records.length ? records.map((record) => {
       const title = record.customer || record.name || record.product || record.title || record.code || record.sku;
       const status = moduleId === "inventory" ? inventoryStatus(record) : record.status;
       return `<article class="record-card ${isArchivedRecord(moduleId, record) ? "is-archived" : ""}">
+        ${selectionMode ? `<label class="record-select"><input type="checkbox" data-bulk-select="${record.id}" ${state.bulkDelete.ids.includes(record.id) ? "checked" : ""} /> 选择此记录</label>` : ""}
         <h3>${escapeHtml(title)}</h3>
         <div class="record-meta">
           <span>编号：${escapeHtml(record.code || record.sku || record.id)}</span>
@@ -1390,7 +1737,7 @@ function renderCards(moduleId, records) {
 
 function renderActions(moduleId, record) {
   const buttons = [];
-  if (moduleId === "leads" && can("salesOrders", "create") && record.status !== "已关闭" && (record.stage === "已成交" || record.status === "已成交")) {
+  if (moduleId === "leads" && can("salesOrders", "create") && !["已关闭", "已转销售订单"].includes(record.status) && (record.stage === "已成交" || record.status === "已成交")) {
     buttons.push(`<button class="primary-btn" data-create-order="${record.id}">生成销售订单</button>`);
   }
   if (moduleId === "salesOrders") {
@@ -1401,7 +1748,7 @@ function renderActions(moduleId, record) {
       buttons.push(`<button class="primary-btn" data-approve-order="${record.id}">审批通过</button>`);
     }
     if (record.status === "待库存确认" && canWorkflow("inventory_check")) {
-      buttons.push(`<button class="primary-btn" data-check-order="${record.id}">检查库存</button>`);
+      buttons.push(`<button class="primary-btn" data-check-order="${record.id}">重新核验库存</button>`);
     }
     if (record.status === "待出库" && canWorkflow("delivery_create")) {
       buttons.push(`<button class="primary-btn" data-create-delivery="${record.id}">生成出库单</button>`);
@@ -1472,7 +1819,7 @@ function renderActions(moduleId, record) {
     const label = moduleId === "leads" ? "关闭线索" : "作废";
     buttons.push(`<button class="danger-btn" data-module="${moduleId}" data-delete="${record.id}">${label}</button>`);
   }
-  return buttons.join("");
+  return `<div class="table-actions">${buttons.join("")}</div>`;
 }
 
 function renderInventoryLogs() {
@@ -1543,15 +1890,21 @@ function openForm(moduleId, id = null) {
 function renderModal(moduleId, record, isEdit) {
   const module = modules.find((m) => m.id === moduleId);
   const approvalFields = ["code", "product", "model", "quantity", "supplierId", "estimatedDate", "lockedDate", "payment", "remark"];
-  const fields = state.editing?.purchaseApprovalId
+  let fields = state.editing?.purchaseApprovalId
     ? (moduleFields[moduleId] || []).filter(([key]) => approvalFields.includes(key))
     : (moduleFields[moduleId] || []);
+  if (multiItemModules.has(moduleId)) {
+    const lineFields = moduleId === "deliveries"
+      ? ["inventoryId", "quantity"]
+      : ["product", "model", "quantity", "unitPrice", "totalAmount"];
+    fields = fields.filter(([key]) => !lineFields.includes(key));
+  }
   const defaultTitle = moduleId === "products"
     ? `${isEdit ? "编辑" : "新增"}产品/型号`
     : `${isEdit ? "编辑" : "新增"}${module.name}`;
   const title = state.editing?.title || defaultTitle;
   return `<div class="modal-backdrop">
-    <form class="modal" id="recordForm">
+    <form class="modal" id="recordForm" autocomplete="off">
       <div class="modal-header">
         <div><h2 class="panel-title">${title}</h2><p class="compact-note">${state.editing?.purchaseApprovalId ? "请核对采购数量、供应商和预计到货日期；确认后会自动增加库存台账的在途数量。" : "关键字段会进入看板、预警和权限数据范围。"}</p></div>
         <button class="icon-btn" type="button" data-close-modal>×</button>
@@ -1560,12 +1913,41 @@ function renderModal(moduleId, record, isEdit) {
         <div class="form-grid">
           ${fields.map((field) => renderField(moduleId, field, record)).join("")}
         </div>
+        ${multiItemModules.has(moduleId) ? renderDocumentItemEditor(moduleId, record) : ""}
       </div>
       <div class="modal-footer">
         <button class="ghost-btn" type="button" data-close-modal>取消</button>
         <button class="primary-btn" type="submit">${state.editing?.purchaseApprovalId ? "确认下单" : "保存"}</button>
       </div>
     </form>
+  </div>`;
+}
+
+function renderDocumentItemEditor(moduleId, record) {
+  const items = documentItems(record);
+  const rows = items.length ? items : [{ id: uid("line"), product: "", productId: "", model: "", inventoryId: "", quantity: "", unitPrice: "" }];
+  const productNames = productOptions();
+  return `<section class="document-items span-2" data-document-items data-module="${moduleId}">
+    <div class="document-items-header"><div><strong>产品明细</strong><small>可添加多个产品或规格；出库时必须全部货齐。</small></div><button type="button" class="ghost-btn" data-add-document-item>添加产品</button></div>
+    <div class="document-item-list">${rows.map((item) => renderDocumentItemRow(moduleId, item, productNames)).join("")}</div>
+  </section>`;
+}
+
+function renderDocumentItemRow(moduleId, item, productNames = productOptions()) {
+  if (moduleId === "deliveries") {
+    return `<div class="document-item-row delivery-item-row" data-document-item>
+      <label>产品/规格<select data-item-inventory required><option value="">请选择库存产品</option>${db.inventory.map((inventory) => `<option value="${inventory.id}" ${item.inventoryId === inventory.id ? "selected" : ""}>${escapeHtml(inventoryLabel(inventory))}</option>`).join("")}</select></label>
+      <label>数量<input data-item-quantity type="number" min="1" step="any" required value="${escapeHtml(item.quantity)}" /></label>
+      <button type="button" class="icon-btn document-item-remove" data-remove-document-item aria-label="删除此产品">×</button>
+    </div>`;
+  }
+  const models = productModelsForName(item.product, item.model);
+  return `<div class="document-item-row ${moduleId === "salesOrders" ? "sales-item-row" : "purchase-item-row"}" data-document-item>
+    <label>产品<select data-item-product required><option value="">请选择产品</option>${productNames.map((name) => `<option value="${escapeHtml(name)}" ${item.product === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label>
+    <label>型号/规格<select data-item-model required><option value="">请选择型号/规格</option>${models.map((model) => `<option value="${escapeHtml(model)}" ${item.model === model ? "selected" : ""}>${escapeHtml(model)}</option>`).join("")}</select></label>
+    <label>数量<input data-item-quantity type="number" min="1" step="any" required value="${escapeHtml(item.quantity)}" /></label>
+    ${moduleId === "salesOrders" ? `<label>单价<input data-item-unit-price type="number" min="0" step="any" value="${escapeHtml(item.unitPrice)}" /></label>` : ""}
+    <button type="button" class="icon-btn document-item-remove" data-remove-document-item aria-label="删除此产品">×</button>
   </div>`;
 }
 
@@ -1593,7 +1975,10 @@ function allowedWorkflowStatusOptions(moduleId, currentStatus, options) {
 function renderField(moduleId, [key, label, type, required, options], record) {
   const value = record[key] ?? "";
   const requiredAttr = required ? "required" : "";
-  const common = `name="${key}" ${requiredAttr}`;
+  // Chromium 对普通 autocomplete="off" 仍可能弹出“保存的信息”。
+  // 业务表单不应使用浏览器地址簿；登录页仍单独保留账号密码自动填充。
+  const autofillMode = ["text", "textarea", "number"].includes(type) ? "new-password" : "off";
+  const common = `name="${key}" ${requiredAttr} autocomplete="${autofillMode}" data-form-type="other" data-lpignore="true" data-1p-ignore="true"`;
   const span = ["textarea", "modulepermissions", "workflowactions"].includes(type) ? "span-2" : "";
   let input = "";
   if (type === "select" && key === "status" && ["salesOrders", "purchases", "deliveries"].includes(moduleId)) {
@@ -1604,7 +1989,20 @@ function renderField(moduleId, [key, label, type, required, options], record) {
   } else if (type === "product") {
     input = `<select ${common}><option value="">请选择产品</option>${productOptions(value).map((op) => `<option value="${escapeHtml(op)}" ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
   } else if (type === "productname") {
-    input = `<input ${common} type="text" list="product-name-options" value="${escapeHtml(value)}" /><datalist id="product-name-options">${productOptions(value).map((name) => `<option value="${escapeHtml(name)}"></option>`).join("")}</datalist>`;
+    const names = productOptions(value);
+    input = `<div class="product-name-picker" data-product-name-picker>
+      <input ${common} class="product-name-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" value="${escapeHtml(value)}" placeholder="选择已有产品或输入新名称" />
+      <button class="product-name-toggle" type="button" aria-label="展开产品名称选项">⌄</button>
+      <div class="product-name-menu" role="listbox" hidden>
+        ${names.map((name) => `<button type="button" class="product-name-option" role="option" data-product-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("")}
+      </div>
+    </div>`;
+  } else if (type === "productsku") {
+    const locked = Boolean(state.editing?.id && !isSuperAdmin());
+    input = `<input ${common} class="sku-input" type="text" ${locked ? "readonly" : "data-sku-input"} value="${escapeHtml(value)}" placeholder="系统会自动建议，可首次修改" />${locked ? `<small class="field-hint">SKU 已被库存和历史流水引用，保存后不再直接修改。</small>` : `<small class="field-hint">系统会按类别和型号建议 SKU；首次保存前可自行调整。</small>`}`;
+  } else if (type === "inventorysku") {
+    const locked = Boolean(state.editing?.id && !isSuperAdmin());
+    input = `<input ${common} class="sku-input" type="text" ${locked ? "readonly" : "data-inventory-sku-input"} value="${escapeHtml(value)}" placeholder="选择产品和型号后自动生成" />${locked ? `<small class="field-hint">已发生库存流水的 SKU 不可直接修改。</small>` : `<small class="field-hint">可在首次保存前修改；保存后将锁定。</small>`}`;
   } else if (type === "autocode") {
     input = `<input ${common} type="text" readonly value="${escapeHtml(value)}" title="由系统自动生成，创建后不可修改" />`;
   } else if (type === "model") {
@@ -1612,11 +2010,26 @@ function renderField(moduleId, [key, label, type, required, options], record) {
     const models = productModelsForName(productName, value);
     input = `<select ${common} data-model-select><option value="">请选择型号/规格</option>${models.map((model) => `<option value="${escapeHtml(model)}" ${String(value) === model ? "selected" : ""}>${escapeHtml(model)}</option>`).join("")}</select>`;
   } else if (type === "lead") {
-    input = `<select ${common}><option value="">无</option>${db.leads.map((lead) => `<option value="${lead.id}" ${value === lead.id ? "selected" : ""}>${escapeHtml(lead.code)} - ${escapeHtml(lead.customer)}</option>`).join("")}</select>`;
+    // 来源线索只允许选择仍可转成订单的成交线索；编辑旧单时保留原关联以便追溯。
+    const eligibleLeads = db.leads.filter((lead) => lead.id === value ||
+      (!["已关闭", "已转销售订单"].includes(lead.status) && (lead.stage === "已成交" || lead.status === "已成交")));
+    input = `<select ${common}><option value="">无</option>${eligibleLeads.map((lead) => `<option value="${lead.id}" ${value === lead.id ? "selected" : ""}>${escapeHtml(lead.code)} - ${escapeHtml(lead.customer)}</option>`).join("")}</select>`;
   } else if (type === "salesorder") {
-    input = `<select ${common}><option value="">无</option>${db.salesOrders.map((order) => `<option value="${order.id}" ${value === order.id ? "selected" : ""}>${escapeHtml(order.code)} - ${escapeHtml(order.customer)}</option>`).join("")}</select>`;
+    // 关联销售订单只展示未完成、未取消的订单；旧记录的既有关联保持可见。
+    const eligibleOrders = db.salesOrders.filter((order) => order.id === value || !isArchivedRecord("salesOrders", order));
+    input = `<select ${common}><option value="">无</option>${eligibleOrders.map((order) => `<option value="${order.id}" ${value === order.id ? "selected" : ""}>${escapeHtml(order.code)} - ${escapeHtml(order.customer)}</option>`).join("")}</select>`;
   } else if (type === "delivery") {
-    input = `<select ${common}>${db.deliveries.map((delivery) => `<option value="${delivery.id}" ${value === delivery.id ? "selected" : ""}>${escapeHtml(delivery.code)} - ${escapeHtml(delivery.project)}</option>`).join("")}</select>`;
+    const eligibleDeliveries = moduleId === "trainings"
+      ? db.deliveries.filter((delivery) => {
+        const deliveryAlreadyUsed = db.trainings.some((training) => training.deliveryId === delivery.id && training.id !== record.id);
+        return (delivery.id === value || ["已出库", "配送中", "已签收"].includes(delivery.status)) && (!deliveryAlreadyUsed || delivery.id === value);
+      })
+      : db.deliveries;
+    const emptyOption = moduleId === "trainings" ? `<option value="">不关联出库单（手工新增）</option>` : "";
+    input = `<select ${common}>${emptyOption}${eligibleDeliveries.map((delivery) => `<option value="${delivery.id}" ${value === delivery.id ? "selected" : ""}>${escapeHtml(delivery.code)} · ${escapeHtml(delivery.project)} · ${escapeHtml(inventoryName(delivery.inventoryId))}</option>`).join("")}</select>`;
+  } else if (type === "linkeddelivery") {
+    const delivery = db.deliveries.find((item) => item.id === value);
+    input = `<input type="hidden" name="${key}" value="${escapeHtml(value)}" /><div class="field-readonly">${delivery ? `<span class="status ${statusClass(delivery.status)}">${escapeHtml(delivery.code)}</span><small>${escapeHtml(delivery.status)} · ${escapeHtml(delivery.project)}</small>` : `<small>选择“需要”并保存后自动生成</small>`}</div>`;
   } else if (type === "user") {
     input = `<select ${common}>${db.users.filter((u) => u.status === "启用").map((u) => `<option value="${u.id}" ${value === u.id ? "selected" : ""}>${escapeHtml(u.name)} - ${roleName(u.role)}</option>`).join("")}</select>`;
   } else if (type === "supplier") {
@@ -1640,11 +2053,16 @@ function renderField(moduleId, [key, label, type, required, options], record) {
     const numberRules = type === "number" ? `min="${key === "quantity" ? 1 : 0}" step="any"` : "";
     input = `<input ${common} type="${type}" ${numberRules} value="${escapeHtml(value)}" />`;
   }
-  return `<div class="field ${span}"><label>${label}${required ? " *" : ""}</label>${input}</div>`;
+  const immediateField = moduleId === "leads" && ["deliveryReceiver", "deliveryAddress", "deliveryMethod", "deliveryId"].includes(key);
+  return `<div class="field ${span}${immediateField ? " immediate-delivery-field" : ""}"><label>${label}${required ? " *" : ""}</label>${input}</div>`;
 }
 
 const configurableModules = () => modules.filter((module) => !["dashboard", "users"].includes(module.id));
-const moduleActionLabels = { view: "查看", create: "新增", edit: "编辑", export: "导出", delete: "作废" };
+const modulePermissionLevels = {
+  none: { label: "不可见", actions: [] },
+  view: { label: "仅查看", actions: ["view"] },
+  edit: { label: "可编辑", actions: ["view", "create", "edit", "export"] },
+};
 
 function renderModulePermissionEditor(record) {
   if (record.role === "admin") {
@@ -1652,8 +2070,12 @@ function renderModulePermissionEditor(record) {
   }
   const selected = effectiveModulePermissions(record);
   return `<div class="permission-editor module-permission-editor">
-    <p>勾选该员工可在各模块执行的操作；不勾选即不可进入或操作该模块。</p>
-    ${configurableModules().map((module) => `<fieldset><legend>${escapeHtml(module.name)}</legend>${Object.entries(moduleActionLabels).map(([action, label]) => `<label><input type="checkbox" name="modulePermission:${module.id}" value="${action}" ${(selected[module.id] || []).includes(action) ? "checked" : ""}>${label}</label>`).join("")}</fieldset>`).join("")}
+    <p>模块权限只分三档：不可见、仅查看、可编辑。删除/强制删除仍仅系统管理员可用。</p>
+    <div class="permission-level-grid">${configurableModules().map((module) => {
+      const actions = selected[module.id] || [];
+      const level = actions.includes("edit") || actions.includes("create") ? "edit" : (actions.includes("view") ? "view" : "none");
+      return `<label><span>${escapeHtml(module.name)}</span><select name="modulePermission:${module.id}">${Object.entries(modulePermissionLevels).map(([id, definition]) => `<option value="${id}" ${level === id ? "selected" : ""}>${definition.label}</option>`).join("")}</select></label>`;
+    }).join("")}</div>
   </div>`;
 }
 
@@ -1666,7 +2088,7 @@ function renderWorkflowPermissionEditor(record) {
     : workflowActions.filter((action) => action.defaultRoles.includes(record.role)).map((action) => action.id);
   const groups = Array.from(new Set(workflowActions.map((action) => action.group)));
   return `<div class="permission-editor workflow-permission-editor">
-    <p>用于分配审批、出入库、签收等按钮；它和数据范围是两套独立规则。</p>
+    <p>这里决定“审批、确认出库、配送、签收”等实际流程按钮是否显示；与上方模块权限分开管理。</p>
     ${groups.map((group) => `<fieldset><legend>${escapeHtml(group)}</legend>${workflowActions.filter((action) => action.group === group).map((action) => `<label><input type="checkbox" name="workflowActions" value="${action.id}" ${selected.includes(action.id) ? "checked" : ""}>${escapeHtml(action.label)}</label>`).join("")}</fieldset>`).join("")}
   </div>`;
 }
@@ -1674,8 +2096,9 @@ function renderWorkflowPermissionEditor(record) {
 function collectModulePermissions(formData) {
   const permissions = {};
   configurableModules().forEach((module) => {
-    const actions = formData.getAll(`modulePermission:${module.id}`);
-    if (actions.length) permissions[module.id] = actions;
+    const level = formData.get(`modulePermission:${module.id}`);
+    const actions = modulePermissionLevels[level]?.actions || [];
+    if (actions.length) permissions[module.id] = [...actions];
   });
   return permissions;
 }
@@ -1686,6 +2109,10 @@ function bindModal() {
   bindProductVariantLinkage();
   bindInventoryProductAutofill();
   bindProductDictionaryAutofill();
+  bindProductNamePicker();
+  bindSkuSuggestion();
+  bindDocumentItemEditor();
+  bindLeadImmediateDeliveryFields();
   document.getElementById("recordForm").addEventListener("submit", (event) => {
     event.preventDefault();
     const { moduleId, id, record, sourceLeadId, sourceDeliveryId, purchaseApprovalId } = state.editing;
@@ -1707,6 +2134,15 @@ function bindModal() {
         next[key] = formData.get(key);
       }
     });
+    if (multiItemModules.has(moduleId)) {
+      const itemResult = collectDocumentItems(moduleId, event.currentTarget);
+      if (!itemResult.ok) {
+        toast(itemResult.message);
+        return;
+      }
+      next.items = itemResult.items;
+      applyLegacyItemSummary(next);
+    }
     if (["leads", "salesOrders", "purchases", "trainings", "aftersales"].includes(moduleId)) {
       next.productId = findProductByLabel(db.products, next.product, next.model)?.id || "";
     }
@@ -1722,17 +2158,8 @@ function bindModal() {
     }
     const linkedLeadId = sourceLeadId || (moduleId === "salesOrders" ? next.leadId : "");
     if (linkedLeadId && moduleId === "salesOrders") {
-      const lead = db.leads.find((item) => item.id === linkedLeadId);
-      if (lead) {
-        const isCancelled = next.status === "已取消";
-        lead.status = "已关闭";
-        lead.stage = isCancelled ? "暂停/丢单" : "已成交";
-        lead.closedAt = nowIso();
-        lead.salesOrderIds = Array.from(new Set([...(lead.salesOrderIds || []), next.id]));
-        lead.updatedAt = nowIso();
-        logAction(isCancelled ? "cancel" : "close", "leads", lead.id, isCancelled ? `销售订单 ${next.code} 已取消，线索同步为暂停/丢单` : `销售订单 ${next.code} 已保存，线索同步为已成交`);
-        saveData();
-      }
+      syncLeadWithSalesOrder(next);
+      saveData();
     }
     if (sourceDeliveryId && moduleId === "trainings") {
       const delivery = db.deliveries.find((item) => item.id === sourceDeliveryId);
@@ -1745,8 +2172,139 @@ function bindModal() {
       }
     }
     closeModal();
-    toast(purchaseApprovalId ? `采购单 ${next.code} 已下单，已同步增加库存在途` : (moduleId === "salesOrders" && next.status === "已取消" && linkedLeadId ? `销售订单 ${next.code} 已取消，原线索已同步为暂停/丢单` : (sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已关闭` : (sourceDeliveryId ? `培训验收单 ${next.code} 创建成功` : (id ? "记录已更新" : "记录已新增")))));
+    const linkedDelivery = moduleId === "leads" && next.deliveryId ? db.deliveries.find((delivery) => delivery.id === next.deliveryId) : null;
+    toast(purchaseApprovalId ? `采购单 ${next.code} 已下单，已同步增加库存在途` : (moduleId === "salesOrders" && next.status === "已取消" && linkedLeadId ? `销售订单 ${next.code} 已取消，原线索已恢复跟进` : (sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已转销售订单` : (sourceDeliveryId ? `培训验收单 ${next.code} 创建成功` : (linkedDelivery ? `线索已保存，送样出库申请 ${linkedDelivery.code} 已推送至出库交付` : (id ? "记录已更新" : "记录已新增"))))));
     render();
+  });
+}
+
+function bindLeadImmediateDeliveryFields() {
+  const form = document.getElementById("recordForm");
+  if (!form || state.editing?.moduleId !== "leads") return;
+  const selector = form.elements.namedItem("immediateDelivery");
+  const fields = [...form.querySelectorAll(".immediate-delivery-field")];
+  if (!selector || !fields.length) return;
+  const sync = () => fields.forEach((field) => field.classList.toggle("is-hidden", selector.value !== "需要"));
+  selector.addEventListener("change", sync);
+  sync();
+}
+
+function bindDocumentItemEditor() {
+  const editor = document.querySelector("[data-document-items]");
+  if (!editor) return;
+  const moduleId = editor.dataset.module;
+  const list = editor.querySelector(".document-item-list");
+  const bindRow = (row) => {
+    const product = row.querySelector("[data-item-product]");
+    const model = row.querySelector("[data-item-model]");
+    product?.addEventListener("change", () => {
+      const selected = model?.value || "";
+      const models = productModelsForName(product.value, selected);
+      if (model) {
+        model.innerHTML = `<option value="">不指定</option>${models.map((value) => `<option value="${escapeHtml(value)}" ${selected === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}`;
+        if (!models.includes(selected) && models.length === 1) model.value = models[0];
+      }
+    });
+    row.querySelector("[data-remove-document-item]")?.addEventListener("click", () => {
+      const rows = list.querySelectorAll("[data-document-item]");
+      if (rows.length === 1) {
+        row.querySelectorAll("select, input").forEach((input) => { input.value = ""; });
+      } else row.remove();
+    });
+  };
+  list.querySelectorAll("[data-document-item]").forEach(bindRow);
+  editor.querySelector("[data-add-document-item]")?.addEventListener("click", () => {
+    list.insertAdjacentHTML("beforeend", renderDocumentItemRow(moduleId, { id: uid("line"), product: "", model: "", inventoryId: "", quantity: "", unitPrice: "" }));
+    const rows = list.querySelectorAll("[data-document-item]");
+    bindRow(rows[rows.length - 1]);
+  });
+}
+
+function collectDocumentItems(moduleId, form) {
+  const rows = [...form.querySelectorAll("[data-document-item]")];
+  const items = rows.map((row) => {
+    const quantity = Number(row.querySelector("[data-item-quantity]")?.value || 0);
+    if (moduleId === "deliveries") {
+      const inventory = db.inventory.find((item) => item.id === row.querySelector("[data-item-inventory]")?.value);
+      return inventory ? { id: uid("line"), inventoryId: inventory.id, productId: inventory.productId || "", product: inventory.name, model: inventory.model, quantity, unitPrice: 0 } : { quantity };
+    }
+    const product = row.querySelector("[data-item-product]")?.value || "";
+    const model = row.querySelector("[data-item-model]")?.value || "";
+    const dictionary = findProductByLabel(db.products, product, model);
+    return { id: uid("line"), productId: dictionary?.id || "", product, model, inventoryId: inventoryForProduct(product, dictionary?.id || "", model)?.id || "", quantity, unitPrice: Number(row.querySelector("[data-item-unit-price]")?.value || 0) };
+  }).filter((item) => item.product || item.inventoryId || item.quantity);
+  const candidate = { items };
+  const validation = validateDocumentItems(moduleId, candidate);
+  return validation.ok ? { ok: true, items } : validation;
+}
+
+function bindSkuSuggestion() {
+  const form = document.getElementById("recordForm");
+  if (!form || state.editing?.id) return;
+  const sku = form.querySelector("[data-sku-input], [data-inventory-sku-input]");
+  if (!sku) return;
+  const update = () => {
+    const isInventory = sku.hasAttribute("data-inventory-sku-input");
+    const name = form.elements.namedItem(isInventory ? "name" : "name")?.value || "";
+    const model = form.elements.namedItem("model")?.value || "";
+    const category = form.elements.namedItem("category")?.value || "其他";
+    const product = findProductByLabel(db.products, name, model);
+    const suggestion = isInventory
+      ? suggestedInventorySku({ name, model, category, productId: product?.id || "" }, sku.dataset.autoValue || "")
+      : suggestedProductSku({ name, model, category }, sku.dataset.autoValue || "");
+    if (!sku.value || sku.value === sku.dataset.autoValue) {
+      sku.value = suggestion;
+      sku.dataset.autoValue = suggestion;
+    }
+  };
+  ["name", "model", "category"].forEach((fieldName) => {
+    const field = form.elements.namedItem(fieldName);
+    field?.addEventListener("input", update);
+    field?.addEventListener("change", update);
+  });
+  sku.addEventListener("input", () => {
+    if (sku.value !== sku.dataset.autoValue) delete sku.dataset.autoValue;
+  });
+  update();
+}
+
+function bindProductNamePicker() {
+  const picker = document.querySelector("[data-product-name-picker]");
+  if (!picker) return;
+  const input = picker.querySelector(".product-name-input");
+  const toggle = picker.querySelector(".product-name-toggle");
+  const menu = picker.querySelector(".product-name-menu");
+  const options = [...picker.querySelectorAll(".product-name-option")];
+  const close = () => {
+    menu.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+  };
+  const open = () => {
+    const keyword = input.value.trim().toLowerCase();
+    options.forEach((option) => {
+      option.hidden = Boolean(keyword) && !option.dataset.productName.toLowerCase().includes(keyword);
+    });
+    menu.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+  };
+  input.addEventListener("focus", open);
+  input.addEventListener("input", open);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") close();
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      open();
+      options.find((option) => !option.hidden)?.focus();
+    }
+  });
+  toggle.addEventListener("click", () => (menu.hidden ? open() : close()));
+  options.forEach((option) => option.addEventListener("click", () => {
+    input.value = option.dataset.productName;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    close();
+  }));
+  document.querySelector(".modal-backdrop")?.addEventListener("pointerdown", (event) => {
+    if (!picker.contains(event.target)) close();
   });
 }
 
@@ -1813,7 +2371,10 @@ function bindInventoryProductAutofill() {
     const model = form.elements.namedItem("model");
     const category = form.elements.namedItem("category");
     const safeStock = form.elements.namedItem("safeStock");
-    if (sku && (replaceSku || !sku.value)) sku.value = product.code ? `SKU-${product.code}` : "";
+    if (sku && (replaceSku || !sku.value) && product.sku) {
+      sku.value = product.sku;
+      sku.dataset.autoValue = product.sku;
+    }
     if (model) model.value = product.model || "";
     if (category && Array.from(category.options).some((option) => option.value === product.category)) category.value = product.category;
     if (safeStock) safeStock.value = String(Number(product.safeStock || 0));
@@ -1955,6 +2516,24 @@ function cancelRecord(record, reason) {
   record.updatedAt = nowIso();
 }
 
+function syncLeadWithSalesOrder(order) {
+  const lead = db.leads.find((item) => item.id === order.leadId);
+  if (!lead) return;
+  lead.salesOrderIds = Array.from(new Set([...(lead.salesOrderIds || []), order.id]));
+  if (order.status === "已取消") {
+    lead.status = "跟进中";
+    lead.stage = "商务谈判";
+    lead.closedAt = "";
+    logAction("reopen", "leads", lead.id, `销售订单 ${order.code} 已作废，线索恢复为商务谈判`);
+  } else {
+    lead.status = "已转销售订单";
+    lead.stage = "已成交";
+    lead.transferredAt = nowIso();
+    logAction("transfer", "leads", lead.id, `已生成销售订单 ${order.code}`);
+  }
+  lead.updatedAt = nowIso();
+}
+
 function reconcileSalesOrderWorkflow(order, oldOrder) {
   if (!oldOrder || !isSalesOrderRollback(oldOrder.status, order.status)) return;
   const reason = `销售订单 ${order.code} 从“${oldOrder.status}”退回到“${order.status}”自动作废`;
@@ -1997,7 +2576,49 @@ function reconcileDeliveryWorkflow(delivery, oldDelivery) {
   }
 }
 
+function createImmediateDeliveryFromLead(lead) {
+  if (!lead || lead.immediateDelivery !== "需要") return null;
+  const existing = db.deliveries.find((delivery) => delivery.sourceLeadId === lead.id && delivery.status !== "已取消");
+  if (existing) {
+    lead.deliveryId = existing.id;
+    return existing;
+  }
+  const product = findProductByLabel(db.products, lead.product, lead.model);
+  const inventory = inventoryForProduct(lead.product, product?.id || "", lead.model);
+  const delivery = getDefaultRecord("deliveries");
+  Object.assign(delivery, {
+    date: today,
+    project: lead.customer,
+    address: lead.deliveryAddress || "",
+    type: "送样",
+    items: [{
+      id: uid("line"),
+      productId: product?.id || "",
+      product: lead.product,
+      model: lead.model,
+      inventoryId: inventory?.id || "",
+      quantity: Number(lead.quantity || 0),
+      unitPrice: 0,
+    }],
+    receiver: lead.deliveryReceiver || lead.contact || "",
+    owner: lead.owner,
+    shipMethod: lead.deliveryMethod || "快递",
+    training: "待确认",
+    status: "待出库",
+    sourceLeadId: lead.id,
+    remark: `由线索 ${lead.code} 的即时送样申请自动生成`,
+  });
+  applyLegacyItemSummary(delivery);
+  db.deliveries.unshift(delivery);
+  lead.deliveryId = delivery.id;
+  logAction("create", "deliveries", delivery.id, `由线索 ${lead.code} 自动生成送样出库申请`);
+  logAction("link", "leads", lead.id, `已关联送样出库单 ${delivery.code}`);
+  return delivery;
+}
+
 function saveRecord(moduleId, id, record) {
+  const documentValidation = validateDocumentItems(moduleId, record);
+  if (!documentValidation.ok) return documentValidation;
   const dataValidation = validateRecordData(moduleId, record);
   if (!dataValidation.ok) return dataValidation;
   if (moduleId === "deliveries") {
@@ -2015,6 +2636,10 @@ function saveRecord(moduleId, id, record) {
   }
   const collection = collectionFor(moduleId);
   const oldRecord = id ? { ...(db[collection].find((r) => r.id === id) || {}) } : null;
+  const skuChanged = Boolean(oldRecord && ["products", "inventory"].includes(moduleId) && oldRecord.sku !== record.sku);
+  if (skuChanged && !isSuperAdmin()) {
+    return { ok: false, message: "只有系统管理员可以修改已建立产品或库存的 SKU/货号。" };
+  }
   if (moduleId === "users" && oldRecord?.role === "admin" && oldRecord.status === "启用" && (record.role !== "admin" || record.status !== "启用")) {
     const remainingAdmins = db.users.filter((user) => user.id !== oldRecord.id && user.role === "admin" && user.status === "启用");
     if (!remainingAdmins.length) return { ok: false, message: "系统至少需要保留一名启用的系统管理员，不能降级或禁用最后一名管理员。" };
@@ -2040,6 +2665,8 @@ function saveRecord(moduleId, id, record) {
     record.productId = product?.id || "";
   }
   if (id) {
+    const productIdentityChanged = moduleId === "products" && ["sku", "name", "model", "category"].some((key) => oldRecord[key] !== record[key]);
+    if (productIdentityChanged || skuChanged) syncSkuChange(moduleId, oldRecord, record);
     const index = db[collection].findIndex((r) => r.id === id);
     db[collection][index] = record;
     logAction("update", moduleId, id, moduleId === "users" ? "更新员工账号或权限配置" : "编辑记录");
@@ -2058,6 +2685,7 @@ function saveRecord(moduleId, id, record) {
       applyInventoryChange(record.inventoryId, "出库", Number(record.quantity || 0), `交付单 ${record.code}`, record.id);
     }
   }
+  if (moduleId === "leads") createImmediateDeliveryFromLead(record);
   if (moduleId === "purchases" && record.status === "已到货") {
     receivePurchase(record);
   }
@@ -2066,6 +2694,43 @@ function saveRecord(moduleId, id, record) {
   if (moduleId === "deliveries" && oldRecord) reconcileDeliveryWorkflow(record, oldRecord);
   saveData();
   return { ok: true };
+}
+
+function addSkuHistory(record, oldSku) {
+  if (!oldSku || oldSku === record.sku) return;
+  record.skuHistory = [...(record.skuHistory || []), { sku: oldSku, changedAt: nowIso(), changedBy: state.currentUser?.id || "" }];
+}
+
+function syncSkuChange(moduleId, oldRecord, record) {
+  if (moduleId === "products") {
+    const changedFields = [];
+    if (oldRecord.sku !== record.sku) {
+      addSkuHistory(record, oldRecord.sku);
+      changedFields.push("货号");
+    }
+    if (oldRecord.name !== record.name) changedFields.push("产品名称");
+    if (oldRecord.model !== record.model) changedFields.push("规格");
+    if (oldRecord.category !== record.category) changedFields.push("类别");
+    db.inventory.forEach((item) => {
+      const belongsToProduct = item.productId === oldRecord.id
+        || (normalizedProductName(item.name) === normalizedProductName(oldRecord.name) && item.model === oldRecord.model);
+      if (!belongsToProduct) return;
+      if (item.sku !== record.sku) addSkuHistory(item, item.sku);
+      syncInventoryIdentityFromProduct(item, record);
+      item.updatedAt = nowIso();
+    });
+    logAction("update", "products", oldRecord.id, `产品字典已更新${changedFields.length ? `（${changedFields.join("、")}）` : ""}，关联库存已同步`);
+    return;
+  }
+  addSkuHistory(record, oldRecord.sku);
+  const product = productById(record.productId)
+    || findProductByLabel(db.products, oldRecord.name, oldRecord.model);
+  if (product) {
+    addSkuHistory(product, product.sku);
+    product.sku = record.sku;
+    product.updatedAt = nowIso();
+  }
+  logAction("update", "inventory", oldRecord.id, `管理员将 SKU 从 ${oldRecord.sku} 修改为 ${record.sku}，产品字典已同步`);
 }
 
 function validateRecordData(moduleId, record) {
@@ -2081,20 +2746,25 @@ function validateRecordData(moduleId, record) {
       if (positiveKeys.has(key) && number <= 0 && (required || value !== "")) return { ok: false, message: `“${label}”必须大于 0` };
     }
   }
-  const returnWorkflowStatuses = new Set(["待收货", "待质检", "维修中", "待换货", "换货待出库", "已退库", "已报废", "已换货"]);
-  if (moduleId === "aftersales" && returnWorkflowStatuses.has(record.status)) {
-    const quantity = Number(record.quantity || 0);
-    if (!record.inventoryId || !Number.isFinite(quantity) || quantity <= 0) {
-      return { ok: false, message: "退库、维修、换货流程必须填写“对应库存”和大于 0 的“涉及数量”" };
-    }
+  if (moduleId === "leads" && record.immediateDelivery === "需要") {
+    if (!String(record.model || "").trim()) return { ok: false, message: "即时出库必须选择“设备型号/规格”，才能准确匹配库存" };
+    if (!Number.isFinite(Number(record.quantity)) || Number(record.quantity) <= 0) return { ok: false, message: "即时出库必须填写大于 0 的预计数量" };
   }
   if (moduleId === "products") {
     const duplicateVariant = (db.products || []).find((product) => product.id !== record.id
       && normalizedProductName(product.name) === normalizedProductName(record.name)
       && String(product.model || "").trim() === String(record.model || "").trim());
     if (duplicateVariant) return { ok: false, message: `产品字典中已有“${record.name} / ${record.model}”，请不要重复新增` };
-    const duplicateCode = (db.products || []).find((product) => product.id !== record.id && product.code === record.code);
-    if (duplicateCode) return { ok: false, message: `产品编码“${record.code}”已存在，请使用新的编码` };
+    const duplicateSku = (db.products || []).find((product) => product.id !== record.id && product.sku === record.sku);
+    if (duplicateSku) return { ok: false, message: `SKU/货号“${record.sku}”已存在，请使用新的 SKU` };
+  }
+  if (moduleId === "inventory") {
+    const duplicateSku = (db.inventory || []).find((item) => item.id !== record.id && item.sku === record.sku);
+    if (duplicateSku) return { ok: false, message: `SKU/货号“${record.sku}”已被其他库存占用` };
+  }
+  if (moduleId === "trainings") {
+    const duplicatedDelivery = record.deliveryId && (db.trainings || []).find((training) => training.id !== record.id && training.deliveryId === record.deliveryId);
+    if (duplicatedDelivery) return { ok: false, message: `出库单已关联培训验收单 ${duplicatedDelivery.code}，不能重复创建` };
   }
   return { ok: true };
 }
@@ -2105,6 +2775,82 @@ function removeRecord(moduleId, id) {
   if (!record) return;
   const actionName = moduleId === "leads" ? "关闭线索" : "作废";
   confirmAction(`确认${actionName}`, `确认${actionName}这条记录？操作会保留业务追溯，不能恢复为彻底删除。`, () => voidRecord(moduleId, id));
+}
+
+function deleteBlockReason(moduleId, record) {
+  if (moduleId === "products") {
+    const usedByInventory = db.inventory.some((item) => item.productId === record.id || (normalizedProductName(item.name) === normalizedProductName(record.name) && item.model === record.model));
+    const usedByBusiness = ["leads", "salesOrders", "purchases", "trainings", "aftersales"].some((collection) =>
+      db[collection].some((item) => item.productId === record.id || (normalizedProductName(item.product) === normalizedProductName(record.name) && item.model === record.model)));
+    if (usedByInventory || usedByBusiness) return "产品已关联库存或业务单据，不能删除；请改为停用。";
+  }
+  if (moduleId === "inventory") {
+    if (Number(record.stock || 0) || Number(record.locked || 0) || Number(record.inTransit || 0)) return "库存数量、锁定数量或在途数量不为 0，不能删除。";
+    const hasHistory = db.inventoryLogs.some((log) => log.itemId === record.id)
+      || db.deliveries.some((item) => item.inventoryId === record.id)
+      || db.aftersales.some((item) => item.inventoryId === record.id);
+    if (hasHistory) return "该库存已有出入库或售后记录，不能删除。";
+  }
+  return "";
+}
+
+function deleteSelectedRecords(moduleId) {
+  if (!isSuperAdmin()) {
+    toast("只有系统管理员可以删除产品或库存。");
+    return;
+  }
+  const ids = state.bulkDelete.ids;
+  const collection = collectionFor(moduleId);
+  const records = (db[collection] || []).filter((record) => ids.includes(record.id));
+  if (!records.length) return;
+  const blocked = records.map((record) => ({ record, reason: deleteBlockReason(moduleId, record) })).filter((item) => item.reason);
+  if (blocked.length) {
+    toast(`无法删除：${blocked[0].record.name || blocked[0].record.sku}，${blocked[0].reason}`);
+    return;
+  }
+  confirmAction(`删除${moduleId === "products" ? "产品/型号" : "库存"}`, `确认删除选中的 ${records.length} 条记录吗？删除后不能恢复。已有业务关联的记录不会允许删除。`, () => {
+    db[collection] = db[collection].filter((record) => !ids.includes(record.id));
+    records.forEach((record) => logAction("delete", moduleId, record.id, "管理员删除未关联记录"));
+    state.bulkDelete = { moduleId: null, ids: [], mode: null };
+    saveData();
+    toast(`已删除 ${records.length} 条记录`);
+    render();
+  });
+}
+
+function forceDeleteSelectedRecords(moduleId) {
+  if (!isSuperAdmin()) {
+    toast("只有系统管理员可以强制删除记录。");
+    return;
+  }
+  const collection = collectionFor(moduleId);
+  const ids = state.bulkDelete.ids;
+  const records = (db[collection] || []).filter((record) => ids.includes(record.id));
+  if (!records.length) return;
+  if (moduleId === "users" && records.some((record) => record.id === state.currentUser?.id)) {
+    toast("不能强制删除当前登录的系统管理员账号。");
+    return;
+  }
+  if (moduleId === "users") {
+    const deleted = new Set(ids);
+    const remainingAdmins = db.users.filter((user) => !deleted.has(user.id) && user.role === "admin" && user.status === "启用");
+    if (!remainingAdmins.length) {
+      toast("系统至少需要保留一名启用的系统管理员。");
+      return;
+    }
+  }
+  confirmAction("强制删除记录", `确认永久删除选中的 ${records.length} 条记录吗？该操作会绕过关联检查，历史单据将保留原内容但不再能打开对应资料，不能恢复。`, () => {
+    db[collection] = db[collection].filter((item) => !ids.includes(item.id));
+    records.forEach((record) => {
+      const label = record.code || record.sku || record.name || record.customer || record.title || record.id;
+      logAction("delete", moduleId, record.id, `管理员强制删除：${label}`);
+    });
+    state.bulkDelete = { moduleId: null, ids: [], mode: null };
+    state.forceDelete = { moduleId, ids, requestedBy: state.currentUser.id };
+    saveData();
+    toast(`已强制删除 ${records.length} 条；历史流水和单据内容保持不变。`);
+    render();
+  });
 }
 
 function voidRecord(moduleId, id) {
@@ -2137,6 +2883,7 @@ function voidRecord(moduleId, id) {
     const index = db.salesOrders.findIndex((item) => item.id === id);
     db.salesOrders[index] = cancelled;
     reconcileSalesOrderWorkflow(cancelled, record);
+    syncLeadWithSalesOrder(cancelled);
     logAction("cancel", "salesOrders", id, "删除操作改为作废，保留业务追溯");
     saveData();
     toast("销售订单已作废，未完成的关联单据已同步取消");
@@ -2201,28 +2948,35 @@ function applyInventoryChange(itemId, action, quantity, remark, sourceId = "", s
 }
 
 function receivePurchase(purchase) {
-  if (!Number.isFinite(Number(purchase.quantity)) || Number(purchase.quantity) <= 0) {
-    toast("采购数量必须大于 0，不能确认到货入库");
+  const itemValidation = validateDocumentItems("purchases", purchase);
+  if (!itemValidation.ok) {
+    toast(`${itemValidation.message}，不能确认到货入库`);
     return false;
   }
-  const item = ensureInventoryForProduct(purchase.product, purchase.productId, purchase.model);
+  const items = documentItems(purchase);
   if (purchase.inTransitApplied && !purchase.inTransitCleared) {
-    item.inTransit = Math.max(0, Number(item.inTransit || 0) - Number(purchase.inTransitQuantity || purchase.quantity || 0));
-    if (Number(item.inTransit || 0) === 0) item.eta = "";
-    item.updatedAt = nowIso();
+    items.forEach((line) => {
+      const item = ensureInventoryForProduct(line.product, line.productId, line.model);
+      item.inTransit = Math.max(0, Number(item.inTransit || 0) - Number(line.quantity || 0));
+      if (Number(item.inTransit || 0) === 0) item.eta = "";
+      item.updatedAt = nowIso();
+    });
     purchase.inTransitCleared = true;
-    logAction("in_transit_clear", "inventory", item.id, `采购单 ${purchase.code} 到货，库存在途减少 ${purchase.inTransitQuantity || purchase.quantity || 0}`);
+    logAction("in_transit_clear", "inventory", purchase.id, `采购单 ${purchase.code} 到货，关联库存在途已减少`);
   }
   if (!purchase.receivedApplied) {
-    applyInventoryChange(item.id, "入库", Number(purchase.quantity || 0), `采购到货 ${purchase.code}`, purchase.id);
+    items.forEach((line) => {
+      const item = ensureInventoryForProduct(line.product, line.productId, line.model);
+      applyInventoryChange(item.id, "入库", Number(line.quantity || 0), `采购到货 ${purchase.code}`, purchase.id);
+    });
     purchase.receivedApplied = true;
   }
   if (purchase.sourceSalesOrderId) {
     const order = db.salesOrders.find((candidate) => candidate.id === purchase.sourceSalesOrderId);
     if (order && order.status !== "已取消") {
-      order.status = "待出库";
+      order.status = orderInventoryCheck(order).ready ? "待出库" : "待采购到货";
       order.updatedAt = nowIso();
-      logAction("purchase_received", "salesOrders", order.id, `关联采购单 ${purchase.code} 已到货入库，订单进入待出库`);
+      logAction("purchase_received", "salesOrders", order.id, order.status === "待出库" ? `关联采购单 ${purchase.code} 已到货，订单全部货齐进入待出库` : `关联采购单 ${purchase.code} 已到货，订单仍有产品待到货`);
     }
   }
   return true;
@@ -2235,7 +2989,7 @@ function ensureInventoryForProduct(productName, productId = "", model = "") {
   const item = {
     id: uid("inv"),
     productId: product.id || productId || "",
-    sku: product.code ? `SKU-${product.code}` : `SKU-${Date.now().toString().slice(-8)}`,
+    sku: product.sku || suggestedInventorySku({ productId: product.id || productId, name: product.name || productName, model: product.model || model, category: product.category || "其他" }),
     name: product.name || productName,
     model: product.model || model || "",
     category: product.category || "其他",
@@ -2315,18 +3069,19 @@ function approveSalesOrder(orderId) {
   order.approvedBy = state.currentUser.id;
   order.approvedAt = nowIso();
   order.updatedAt = nowIso();
-  logAction("approve", "salesOrders", order.id, "销售订单审批通过，等待库存检查");
-  saveData();
-  toast("销售订单已审批通过，请进行库存检查");
-  render();
+  logAction("approve", "salesOrders", order.id, "销售订单审批通过，系统开始核验库存");
+  // 库存核验是系统规则，不要求销售、仓库再重复点一次。
+  // 库存不足自动转采购，货齐则进入待出库；待库存确认仅保留给历史异常单据重新核验。
+  checkSalesOrderInventory(order.id, { automatic: true });
 }
 
-function checkSalesOrderInventory(orderId) {
+function checkSalesOrderInventory(orderId, { automatic = false } = {}) {
   const order = db.salesOrders.find((item) => item.id === orderId);
-  if (!order || order.status !== "待库存确认" || !canWorkflow("inventory_check")) return;
-  if (!Number.isFinite(Number(order.quantity)) || Number(order.quantity) <= 0) return toast("订单数量必须大于 0，请先编辑订单后再检查库存");
-  const item = inventoryForProduct(order.product, order.productId, order.model);
-  if (item && availableStock(item) >= Number(order.quantity || 0)) {
+  if (!order || order.status !== "待库存确认" || (!automatic && !canWorkflow("inventory_check"))) return;
+  const itemValidation = validateDocumentItems("salesOrders", order);
+  if (!itemValidation.ok) return toast(itemValidation.message);
+  const inventoryCheck = orderInventoryCheck(order);
+  if (inventoryCheck.ready) {
     linkedToSalesOrder("purchases", order.id)
       .filter((purchase) => reversiblePurchaseStatuses.includes(purchase.status))
       .forEach((purchase) => {
@@ -2334,9 +3089,10 @@ function checkSalesOrderInventory(orderId) {
         logAction("cancel", "purchases", purchase.id, "库存已满足，自动作废待处理采购申请");
       });
     order.status = "待出库";
-    order.inventoryId = item.id;
+    order.items = inventoryCheck.readyItems;
+    applyLegacyItemSummary(order);
     order.updatedAt = nowIso();
-    logAction("inventory_check", "salesOrders", order.id, `库存充足，可生成出库单：${item.name}`);
+    logAction("inventory_check", "salesOrders", order.id, `订单 ${documentItems(order).length} 项产品库存均充足，可一次性出库`);
     saveData();
     toast("库存充足，销售订单已进入待出库");
     render();
@@ -2352,22 +3108,20 @@ function checkSalesOrderInventory(orderId) {
       requester: order.owner,
       owner: buyer?.id || state.currentUser.id,
       type: "项目采购",
-      product: order.product,
-      productId: order.productId,
-      model: order.model,
-      quantity: Number(order.quantity || 0),
+      items: inventoryCheck.shortages.map((line) => ({ ...line, quantity: Number(line.shortage || line.quantity || 0) })),
       project: order.customer,
       requiredDate: order.deliveryDate,
       sourceSalesOrderId: order.id,
       status: "待采购审批",
       remark: `销售订单 ${order.code} 库存不足自动生成，等待有采购权限的人员审批`,
     });
+    applyLegacyItemSummary(purchase);
     db.purchases.unshift(purchase);
     logAction("create", "purchases", purchase.id, `销售订单 ${order.code} 缺货自动生成采购申请`);
   }
-  logAction("inventory_shortage", "salesOrders", order.id, "库存不足，已生成待采购审批申请");
+  logAction("inventory_shortage", "salesOrders", order.id, `有 ${inventoryCheck.shortages.length} 项产品库存不足，已生成采购申请`);
   saveData();
-  toast("库存不足，已通知采购人员审批");
+  toast(automatic ? "审批通过，库存不足，已生成采购申请" : "库存不足，已生成采购申请");
   render();
 }
 
@@ -2387,26 +3141,28 @@ function openPurchaseApproval(purchaseId) {
 
 function confirmPurchaseOrder(purchase, oldPurchase) {
   if (!purchase.estimatedDate) return { ok: false, message: "请填写预计到货日期后再确认下单" };
-  if (!Number.isFinite(Number(purchase.quantity)) || Number(purchase.quantity) <= 0) return { ok: false, message: "采购数量必须大于 0" };
+  const itemValidation = validateDocumentItems("purchases", purchase);
+  if (!itemValidation.ok) return itemValidation;
   purchase.status = "已下单";
   purchase.approvedBy = state.currentUser.id;
   purchase.approvedAt = nowIso();
   purchase.updatedAt = nowIso();
   purchase.inTransitApplied = true;
-  purchase.inTransitQuantity = Number(purchase.quantity || 0);
   const index = db.purchases.findIndex((item) => item.id === oldPurchase.id);
   if (index < 0) return { ok: false, message: "采购单不存在或已被修改，请刷新后重试" };
   db.purchases[index] = purchase;
-  const inventory = ensureInventoryForProduct(purchase.product, purchase.productId, purchase.model);
-  inventory.inTransit = Number(inventory.inTransit || 0) + purchase.inTransitQuantity;
-  inventory.eta = purchase.estimatedDate;
-  inventory.updatedAt = nowIso();
+  documentItems(purchase).forEach((line) => {
+    const inventory = ensureInventoryForProduct(line.product, line.productId, line.model);
+    inventory.inTransit = Number(inventory.inTransit || 0) + Number(line.quantity || 0);
+    inventory.eta = purchase.estimatedDate;
+    inventory.updatedAt = nowIso();
+  });
   const order = db.salesOrders.find((item) => item.id === purchase.sourceSalesOrderId);
   if (order) {
     order.status = "待采购到货";
     order.updatedAt = nowIso();
   }
-  logAction("approve", "purchases", purchase.id, `采购审批通过并下单，在途增加 ${purchase.inTransitQuantity}，预计到货 ${purchase.estimatedDate}`);
+  logAction("approve", "purchases", purchase.id, `采购审批通过并下单，${documentItems(purchase).length} 项产品已增加在途，预计到货 ${purchase.estimatedDate}`);
   saveData();
   return { ok: true };
 }
@@ -2427,7 +3183,8 @@ function confirmPurchaseTechnical(purchaseId) {
 function markPurchaseInTransit(purchaseId) {
   const purchase = db.purchases.find((item) => item.id === purchaseId);
   if (!purchase || purchase.status !== "已下单" || !canWorkflow("purchase_mark_transit")) return;
-  if (!Number.isFinite(Number(purchase.quantity)) || Number(purchase.quantity) <= 0) return toast("采购数量必须大于 0，不能标记在途");
+  const itemValidation = validateDocumentItems("purchases", purchase);
+  if (!itemValidation.ok) return toast(itemValidation.message);
   purchase.status = "在途";
   purchase.shippedBy = state.currentUser.id;
   purchase.shippedAt = nowIso();
@@ -2449,18 +3206,11 @@ function createDeliveryFromSalesOrder(orderId) {
     toast("你没有生成出库单的权限，请联系仓库或管理员");
     return;
   }
-  if (!Number.isFinite(Number(order.quantity)) || Number(order.quantity) <= 0) {
-    toast("订单数量必须大于 0，请先编辑订单后再生成出库单");
-    return;
-  }
-  const item = db.inventory.find((inventory) => inventory.id === order.inventoryId)
-    || inventoryForProduct(order.product, order.productId, order.model);
-  if (!item) {
-    toast(`未找到“${order.product}”对应库存，请先重新检查库存`);
-    return;
-  }
-  if (availableStock(item) < Number(order.quantity || 0)) {
-    toast(`库存不足：${item.name} 当前可用 ${availableStock(item)}，订单需要 ${order.quantity}；请重新检查库存或走采购流程`);
+  const itemValidation = validateDocumentItems("salesOrders", order);
+  if (!itemValidation.ok) return toast(itemValidation.message);
+  const inventoryCheck = orderInventoryCheck(order);
+  if (!inventoryCheck.ready) {
+    toast(`仍有 ${inventoryCheck.shortages.length} 项产品库存不足，暂不能出库；本订单必须全部货齐后一次性发货。`);
     return;
   }
   const existing = db.deliveries.find((delivery) => delivery.sourceSalesOrderId === order.id && !["异常", "已取消"].includes(delivery.status));
@@ -2473,9 +3223,7 @@ function createDeliveryFromSalesOrder(orderId) {
     date: today,
     project: order.customer,
     type: "销售交付",
-    inventoryId: item.id,
-    productId: order.productId,
-    quantity: Number(order.quantity || 0),
+    items: inventoryCheck.readyItems,
     receiver: order.contact,
     owner: order.owner,
     sourceSalesOrderId: order.id,
@@ -2483,6 +3231,7 @@ function createDeliveryFromSalesOrder(orderId) {
     status: "待出库",
     remark: `由销售订单 ${order.code} 自动生成`,
   });
+  applyLegacyItemSummary(delivery);
   db.deliveries.unshift(delivery);
   order.deliveryId = delivery.id;
   order.updatedAt = nowIso();
@@ -2495,13 +3244,17 @@ function createDeliveryFromSalesOrder(orderId) {
 function confirmDeliveryOutbound(deliveryId) {
   const delivery = db.deliveries.find((item) => item.id === deliveryId);
   if (!delivery || delivery.status !== "待出库" || !canWorkflow("delivery_outbound")) return;
-  if (!Number.isFinite(Number(delivery.quantity)) || Number(delivery.quantity) <= 0) return toast("出库数量必须大于 0，请先编辑出库单");
-  const item = db.inventory.find((inventory) => inventory.id === delivery.inventoryId);
-  if (!item || availableStock(item) < Number(delivery.quantity || 0)) {
-    toast("库存不足，无法确认出库");
-    return;
-  }
-  applyInventoryChange(item.id, "出库", Number(delivery.quantity || 0), `出库单 ${delivery.code}`, delivery.id);
+  const itemValidation = validateDocumentItems("deliveries", delivery);
+  if (!itemValidation.ok) return toast(itemValidation.message);
+  const items = deliveryItems(delivery);
+  const insufficient = items.find((line) => {
+    const inventory = db.inventory.find((item) => item.id === line.inventoryId);
+    return !inventory || availableStock(inventory) < Number(line.quantity || 0);
+  });
+  if (insufficient) return toast(`库存不足：${itemLabel(insufficient)}，本出库单必须全部货齐后一次性发货。`);
+  items.forEach((line) => applyInventoryChange(line.inventoryId, "出库", Number(line.quantity || 0), `出库单 ${delivery.code}`, delivery.id));
+  delivery.items = items;
+  applyLegacyItemSummary(delivery);
   delivery.status = "已出库";
   delivery.outboundAt = nowIso();
   delivery.updatedAt = nowIso();
@@ -2553,16 +3306,14 @@ function openTrainingFromDelivery(deliveryId) {
     toast(`该出库单已有培训验收单 ${existing.code}`);
     return;
   }
-  const order = db.salesOrders.find((item) => item.id === delivery.sourceSalesOrderId);
   const item = db.inventory.find((inventory) => inventory.id === delivery.inventoryId);
   const training = getDefaultRecord("trainings");
   Object.assign(training, {
-    salesOrderId: order?.id || "",
     deliveryId: delivery.id,
     customer: delivery.project,
-    product: item?.name || order?.product || "",
-    productId: item?.productId || order?.productId || "",
-    model: item?.model || order?.model || "",
+    product: item?.name || "",
+    productId: item?.productId || "",
+    model: item?.model || "",
     quantity: Number(delivery.quantity || 0),
     trainer: state.currentUser.id,
     status: "待培训",
@@ -2584,17 +3335,48 @@ function getAfterSalesReturnRecord(id) {
   return db.aftersales.find((record) => record.id === id) || null;
 }
 
-function validateAfterSalesInventory(record) {
-  const quantity = Number(record.quantity || 0);
-  const item = db.inventory.find((inventory) => inventory.id === record.inventoryId);
-  if (!item || quantity <= 0) return { ok: false, message: "请先编辑售后工单，填写对应库存和涉及数量后再处理退库。" };
+function openAfterSalesInventoryDialog(id, action) {
+  const record = getAfterSalesReturnRecord(id);
+  if (!record) return toast("售后工单不存在");
+  if (!db.inventory.length) return toast("当前没有可选择的库存产品，请先建立库存台账。");
+  const actionName = action === "replacement" ? "生成换货出库单" : (action === "repair-return" ? "维修完成入库" : "质检合格入库");
+  const preferred = db.inventory.filter((item) => item.name === record.product && (!record.model || item.model === record.model));
+  const options = [...preferred, ...db.inventory.filter((item) => !preferred.some((preferredItem) => preferredItem.id === item.id))]
+    .map((item) => `<option value="${item.id}" ${item.id === record.inventoryId ? "selected" : ""}>${escapeHtml(inventoryLabel(item))}</option>`).join("");
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" data-aftersales-inventory-dialog>
+    <section class="modal confirm-modal">
+      <div class="modal-header"><div><h2 class="panel-title">${actionName}</h2><p class="compact-note">仅本次实际入库或换货时选择产品和数量；售后工单本身无需关联库存。</p></div><button class="icon-btn" type="button" data-close-aftersales-inventory>×</button></div>
+      <form data-aftersales-inventory-form><div class="modal-body"><div class="form-grid">
+        <label>实际处理产品/规格 *<select name="inventoryId" required>${options}</select></label>
+        <label>实际处理数量 *<input name="quantity" type="number" min="1" step="1" required value="${escapeHtml(record.quantity || 1)}"></label>
+      </div></div><div class="modal-footer"><button class="ghost-btn" type="button" data-close-aftersales-inventory>取消</button><button class="primary-btn" type="submit">确认${actionName}</button></div></form>
+    </section>
+  </div>`);
+  const close = () => document.querySelector("[data-aftersales-inventory-dialog]")?.remove();
+  document.querySelectorAll("[data-close-aftersales-inventory]").forEach((button) => button.addEventListener("click", close));
+  document.querySelector("[data-aftersales-inventory-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const selection = { inventoryId: form.inventoryId.value, quantity: Number(form.quantity.value) };
+    close();
+    confirmAction(actionName, `确认本次按所选产品处理 ${selection.quantity} 件吗？`, () => {
+      if (action === "replacement") createReplacementDelivery(id, selection);
+      else returnAfterSalesToStock(id, selection);
+    });
+  });
+}
+
+function validateAfterSalesInventory(record, selection = {}) {
+  const quantity = Number((selection.quantity ?? record.quantity) || 0);
+  const inventoryId = selection.inventoryId || record.inventoryId;
+  const item = db.inventory.find((inventory) => inventory.id === inventoryId);
+  if (!item || quantity <= 0) return { ok: false, message: "请选择实际处理的产品/规格，并填写大于 0 的数量。" };
   return { ok: true, item, quantity };
 }
 
 function startAfterSalesReturn(id) {
   const record = getAfterSalesReturnRecord(id);
-  const validation = record ? validateAfterSalesInventory(record) : { ok: false, message: "售后工单不存在" };
-  if (!validation.ok) return toast(validation.message);
+  if (!record) return toast("售后工单不存在");
   record.status = "待收货";
   record.returnStartedAt = nowIso();
   record.updatedAt = nowIso();
@@ -2607,8 +3389,6 @@ function startAfterSalesReturn(id) {
 function receiveAfterSalesReturn(id) {
   const record = getAfterSalesReturnRecord(id);
   if (!record || record.status !== "待收货") return;
-  const validation = validateAfterSalesInventory(record);
-  if (!validation.ok) return toast(validation.message);
   record.status = "待质检";
   record.receivedAt = nowIso();
   record.updatedAt = nowIso();
@@ -2630,11 +3410,13 @@ function setAfterSalesDisposition(id, status, message) {
   render();
 }
 
-function returnAfterSalesToStock(id) {
+function returnAfterSalesToStock(id, selection = {}) {
   const record = getAfterSalesReturnRecord(id);
-  const validation = record ? validateAfterSalesInventory(record) : { ok: false, message: "售后工单不存在" };
+  const validation = record ? validateAfterSalesInventory(record, selection) : { ok: false, message: "售后工单不存在" };
   if (!validation.ok) return toast(validation.message);
   if (record.returnStockApplied) return toast("该售后单已完成退库，不能重复增加库存");
+  record.inventoryId = validation.item.id;
+  record.quantity = validation.quantity;
   applyInventoryChange(validation.item.id, "入库", validation.quantity, `售后退库 ${record.code}`, record.id, "aftersales");
   record.returnStockApplied = true;
   record.returnedAt = nowIso();
@@ -2647,12 +3429,14 @@ function returnAfterSalesToStock(id) {
   render();
 }
 
-function createReplacementDelivery(id) {
+function createReplacementDelivery(id, selection = {}) {
   const record = getAfterSalesReturnRecord(id);
-  const validation = record ? validateAfterSalesInventory(record) : { ok: false, message: "售后工单不存在" };
+  const validation = record ? validateAfterSalesInventory(record, selection) : { ok: false, message: "售后工单不存在" };
   if (!validation.ok) return toast(validation.message);
   if (db.deliveries.some((delivery) => delivery.sourceAfterSalesId === record.id && delivery.status !== "已取消")) return toast("该售后单已生成换货出库单");
   if (availableStock(validation.item) < validation.quantity) return toast(`库存不足：${validation.item.name} 可用 ${availableStock(validation.item)}，无法换货出库 ${validation.quantity}`);
+  record.replacementInventoryId = validation.item.id;
+  record.replacementQuantity = validation.quantity;
   const delivery = getDefaultRecord("deliveries");
   Object.assign(delivery, {
     project: record.customer,

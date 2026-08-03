@@ -101,6 +101,65 @@ function clearSessionCookie() {
   return `${COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secure}`;
 }
 
+function byId(records) {
+  return new Map((records || []).filter((record) => record?.id).map((record) => [record.id, record]));
+}
+
+function productHasReferences(state, product) {
+  const sameProduct = (record) => record?.productId === product.id
+    || (record?.product === product.name && String(record?.model || "") === String(product.model || ""));
+  if ((state.inventory || []).some((item) => item.productId === product.id || (item.name === product.name && String(item.model || "") === String(product.model || "")))) return true;
+  return ["leads", "salesOrders", "purchases", "trainings", "aftersales"].some((collection) => (state[collection] || []).some(sameProduct));
+}
+
+function inventoryHasReferences(state, item) {
+  if (Number(item.stock || 0) || Number(item.locked || 0) || Number(item.inTransit || 0)) return true;
+  if ((state.inventoryLogs || []).some((log) => log.itemId === item.id)) return true;
+  return ["deliveries", "aftersales"].some((collection) => (state[collection] || []).some((record) => record.inventoryId === item.id));
+}
+
+function assertSensitiveStateWrite(user, currentState, incomingState) {
+  const isAdmin = user?.role === "admin";
+  const forceDelete = incomingState.meta?.forceDelete;
+  const forceModule = forceDelete?.moduleId;
+  const forcedIds = new Set(forceDelete?.ids || []);
+  if (forceDelete && !isAdmin) throw new Error("只有系统管理员可以强制删除记录");
+  if (forceDelete && (!forceModule || !Array.isArray(forceDelete.ids) || !forceDelete.ids.length)) throw new Error("强制删除请求无效");
+  const forceAllows = (moduleId, id) => forceModule === moduleId && forcedIds.has(id);
+  const currentProducts = byId(currentState.products);
+  const incomingProducts = byId(incomingState.products);
+  const currentInventory = byId(currentState.inventory);
+  const incomingInventory = byId(incomingState.inventory);
+
+  for (const [id, product] of currentProducts) {
+    const next = incomingProducts.get(id);
+    if (!next) {
+      if (!isAdmin) throw new Error("只有系统管理员可以删除产品/型号");
+      if (!forceAllows("products", id) && productHasReferences(currentState, product)) throw new Error("该产品已关联库存或业务单据，不能删除");
+    } else if (String(product.sku || "") !== String(next.sku || "") && !isAdmin) {
+      throw new Error("只有系统管理员可以修改已建立产品的 SKU/货号");
+    }
+  }
+  for (const [id, item] of currentInventory) {
+    const next = incomingInventory.get(id);
+    if (!next) {
+      if (!isAdmin) throw new Error("只有系统管理员可以删除库存");
+      if (!forceAllows("inventory", id) && inventoryHasReferences(currentState, item)) throw new Error("该库存已有数量或业务流水，不能删除");
+    } else if (String(item.sku || "") !== String(next.sku || "") && !isAdmin) {
+      throw new Error("只有系统管理员可以修改已建立库存的 SKU/货号");
+    }
+  }
+  for (const collection of ["users", "leads", "salesOrders", "purchases", "deliveries", "trainings", "aftersales", "suppliers", "notices"]) {
+    const currentRecords = byId(currentState[collection]);
+    const incomingRecords = byId(incomingState[collection]);
+    for (const [id] of currentRecords) {
+      if (!incomingRecords.has(id) && !isAdmin) throw new Error("只有系统管理员可以删除业务记录");
+    }
+  }
+  const enabledAdmins = (incomingState.users || []).filter((item) => item.role === "admin" && item.status === "启用");
+  if (!enabledAdmins.length) throw new Error("系统至少需要保留一名启用的系统管理员");
+}
+
 async function requireUser(req, res) {
   const secret = process.env.SESSION_SECRET || "";
   const token = parseCookies(req)[COOKIE_NAME];
@@ -201,8 +260,24 @@ async function handleApi(req, res) {
       const user = await requireUser(req, res);
       if (!user) return;
       const payload = JSON.parse(await readBody(req));
+      const currentState = await readState();
+      const currentRevision = Number(currentState.meta?.revision || 0);
+      const incomingRevision = Number(payload.meta?.revision || 0);
+      // 整份业务数据会一起保存。拒绝旧页面的写入，避免覆盖其他页面刚保存的内容。
+      if (currentRevision && incomingRevision !== currentRevision) {
+        sendJson(res, 409, {
+          ok: false,
+          error: "DATA_OUTDATED",
+          message: "数据已在其他页面更新，请刷新后再操作。",
+          revision: currentRevision,
+        });
+        return;
+      }
+      assertSensitiveStateWrite(user, currentState, payload);
+      payload.meta = { ...(payload.meta || {}), revision: currentRevision + 1 };
+      delete payload.meta.forceDelete;
       const saved = await writeState(payload);
-      sendJson(res, 200, { ok: true, savedAt: new Date().toISOString(), users: saved.users.length });
+      sendJson(res, 200, { ok: true, savedAt: new Date().toISOString(), users: saved.users.length, revision: saved.meta?.revision });
       return;
     }
     sendJson(res, 404, { ok: false, error: "API not found" });

@@ -149,6 +149,224 @@ button {
   border-color: var(--brand);
 }
 
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.document-items {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfe;
+}
+
+.document-items-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--brand);
+}
+
+.document-items-header small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.document-item-list {
+  display: grid;
+  gap: 9px;
+}
+
+.document-item-row {
+  display: grid;
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border-radius: 7px;
+  background: #fff;
+  border: 1px solid #e2eaf1;
+}
+
+.document-item-row.sales-item-row {
+  grid-template-columns: minmax(160px, 1.4fr) minmax(140px, 1.2fr) minmax(100px, .7fr) minmax(110px, .8fr) 36px;
+}
+
+.document-item-row.purchase-item-row {
+  grid-template-columns: minmax(220px, 1.5fr) minmax(180px, 1.2fr) minmax(120px, .7fr) 36px;
+}
+
+/* 出库只需要选择库存产品和数量，避免沿用四列表单而挤压输入框。 */
+.document-item-row.delivery-item-row {
+  grid-template-columns: minmax(260px, 1fr) minmax(120px, 180px) 36px;
+}
+
+.document-item-row label {
+  margin: 0;
+  font-size: 12px;
+  color: #52677b;
+}
+
+.document-item-row label select,
+.document-item-row label input {
+  margin-top: 5px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.document-item-remove {
+  min-height: 40px;
+  color: var(--red);
+}
+
+@media (max-width: 760px) {
+  .document-item-row.sales-item-row,
+  .document-item-row.purchase-item-row,
+  .document-item-row.delivery-item-row { grid-template-columns: 1fr 1fr; }
+  .document-item-row.delivery-item-row { grid-template-columns: 1fr 1fr; }
+  .document-item-remove { grid-column: 2; }
+}
+
+.inventory-group-row td {
+  padding: 11px 14px;
+  background: #edf4fa;
+  border-top: 1px solid #c9ddec;
+  color: var(--brand);
+}
+
+.inventory-group-row strong {
+  margin-right: 10px;
+  font-size: 14px;
+}
+
+.inventory-group-row span {
+  margin-right: 14px;
+  color: #47627a;
+  font-size: 12px;
+}
+
+.inventory-group-row .inventory-group-category {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #d7e7f5;
+  color: #315d85;
+}
+
+.inventory-variant-row .inventory-model-cell {
+  padding-left: 28px;
+  font-weight: 650;
+}
+
+.inventory-variant-row .inventory-model-cell::before {
+  content: "↳ ";
+  color: var(--brand-2);
+}
+
+/* 货号是业务识别码，必须完整、逐字符可辨，不随中英文界面字体产生视觉断字。 */
+.sku-cell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-weight: 650;
+  letter-spacing: 0.015em;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.field.is-hidden {
+  display: none;
+}
+
+.select-column {
+  width: 46px;
+  text-align: center;
+}
+
+.select-column input {
+  width: 16px;
+  min-height: 16px;
+  accent-color: var(--brand);
+}
+
+.record-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.product-name-picker {
+  position: relative;
+}
+
+.product-name-picker .product-name-input {
+  padding-right: 42px;
+}
+
+.product-name-toggle {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 38px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0 7px 7px 0;
+  background: #fff;
+  color: var(--brand);
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.product-name-toggle:hover {
+  background: #f3f7fb;
+}
+
+.product-name-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+}
+
+.product-name-option {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.product-name-option:hover,
+.product-name-option:focus {
+  background: #eaf2fb;
+  color: var(--brand);
+  outline: 0;
+}
+
 .primary-btn,
 .ghost-btn,
 .danger-btn,
@@ -513,6 +731,21 @@ td {
   vertical-align: top;
 }
 
+/* 操作按钮是一组完整动作，不能因表格变窄而拆成上下两排。 */
+th:last-child,
+td:last-child {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.table-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
 th {
   background: var(--brand);
   color: #fff;
@@ -694,6 +927,33 @@ tbody tr:nth-child(even) td {
 .permission-editor input[type="checkbox"]:focus-visible {
   outline: 2px solid rgba(31, 78, 121, 0.22);
   outline-offset: 2px;
+}
+
+.permission-level-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.permission-level-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbfe;
+}
+
+.permission-level-grid select {
+  width: 104px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  padding: 4px 7px;
 }
 
 .pagination,
