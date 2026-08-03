@@ -705,6 +705,18 @@ function saveData() {
   }
 }
 
+async function adjustInventoryOnServer(adjustments, sourceId, sourceModule) {
+  const response = await fetch("/api/inventory/adjustments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ adjustments, sourceId, sourceModule }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.message || payload.error || "库存服务处理失败");
+  return payload.results || [];
+}
+
 function logAction(action, moduleId, recordId, detail) {
   db.auditLogs = db.auditLogs || [];
   db.auditLogs.unshift({
@@ -2648,6 +2660,9 @@ function saveRecord(moduleId, id, record) {
     const validation = validateSalesOrderRollback(record, oldRecord);
     if (!validation.ok) return validation;
   }
+  if (moduleId === "purchases" && oldRecord && oldRecord.status !== "已到货" && record.status === "已到货") {
+    return { ok: false, message: "采购到货必须使用“确认到货入库”按钮，确保库存和流水在服务器事务中同步。" };
+  }
   if (moduleId === "inventory" && !id) {
     const product = findProductByLabel(db.products, record.name, record.model);
     const existing = inventoryForProduct(record.name, product?.id || "", record.model);
@@ -2686,9 +2701,6 @@ function saveRecord(moduleId, id, record) {
     }
   }
   if (moduleId === "leads") createImmediateDeliveryFromLead(record);
-  if (moduleId === "purchases" && record.status === "已到货") {
-    receivePurchase(record);
-  }
   if (moduleId === "salesOrders" && oldRecord) reconcileSalesOrderWorkflow(record, oldRecord);
   if (moduleId === "purchases" && oldRecord) reconcilePurchaseWorkflow(record, oldRecord);
   if (moduleId === "deliveries" && oldRecord) reconcileDeliveryWorkflow(record, oldRecord);
@@ -2947,13 +2959,29 @@ function applyInventoryChange(itemId, action, quantity, remark, sourceId = "", s
   return true;
 }
 
-function receivePurchase(purchase) {
+async function receivePurchase(purchase) {
   const itemValidation = validateDocumentItems("purchases", purchase);
   if (!itemValidation.ok) {
     toast(`${itemValidation.message}，不能确认到货入库`);
     return false;
   }
   const items = documentItems(purchase);
+  const inventoryLines = items.map((line) => ({ line, item: ensureInventoryForProduct(line.product, line.productId, line.model) }));
+  let results;
+  if (!purchase.receivedApplied) {
+    try {
+      results = await adjustInventoryOnServer(inventoryLines.map(({ line, item }) => ({ inventoryId: item.id, delta: Number(line.quantity || 0), action: "入库", remark: `采购到货 ${purchase.code}` })), purchase.id, "purchase");
+    } catch (error) {
+      toast(error.message || "采购到货入库失败，请刷新后重试");
+      return false;
+    }
+    results.forEach((result) => {
+      const item = db.inventory.find((candidate) => candidate.id === result.inventoryId);
+      if (item) { item.stock = result.afterStock; item.updatedAt = nowIso(); }
+      db.inventoryLogs.unshift({ id: result.movementId, itemId: result.inventoryId, action: result.action, quantity: result.quantity, beforeStock: result.beforeStock, afterStock: result.afterStock, sourceId: purchase.id, sourceType: "purchase", operatorId: state.currentUser.id, createdAt: nowIso(), remark: result.remark });
+    });
+    purchase.receivedApplied = true;
+  }
   if (purchase.inTransitApplied && !purchase.inTransitCleared) {
     items.forEach((line) => {
       const item = ensureInventoryForProduct(line.product, line.productId, line.model);
@@ -2963,13 +2991,6 @@ function receivePurchase(purchase) {
     });
     purchase.inTransitCleared = true;
     logAction("in_transit_clear", "inventory", purchase.id, `采购单 ${purchase.code} 到货，关联库存在途已减少`);
-  }
-  if (!purchase.receivedApplied) {
-    items.forEach((line) => {
-      const item = ensureInventoryForProduct(line.product, line.productId, line.model);
-      applyInventoryChange(item.id, "入库", Number(line.quantity || 0), `采购到货 ${purchase.code}`, purchase.id);
-    });
-    purchase.receivedApplied = true;
   }
   if (purchase.sourceSalesOrderId) {
     const order = db.salesOrders.find((candidate) => candidate.id === purchase.sourceSalesOrderId);
@@ -3241,7 +3262,7 @@ function createDeliveryFromSalesOrder(orderId) {
   render();
 }
 
-function confirmDeliveryOutbound(deliveryId) {
+async function confirmDeliveryOutbound(deliveryId) {
   const delivery = db.deliveries.find((item) => item.id === deliveryId);
   if (!delivery || delivery.status !== "待出库" || !canWorkflow("delivery_outbound")) return;
   const itemValidation = validateDocumentItems("deliveries", delivery);
@@ -3252,7 +3273,18 @@ function confirmDeliveryOutbound(deliveryId) {
     return !inventory || availableStock(inventory) < Number(line.quantity || 0);
   });
   if (insufficient) return toast(`库存不足：${itemLabel(insufficient)}，本出库单必须全部货齐后一次性发货。`);
-  items.forEach((line) => applyInventoryChange(line.inventoryId, "出库", Number(line.quantity || 0), `出库单 ${delivery.code}`, delivery.id));
+  let results;
+  try {
+    results = await adjustInventoryOnServer(items.map((line) => ({ inventoryId: line.inventoryId, delta: -Number(line.quantity || 0), action: "出库", remark: `出库单 ${delivery.code}` })), delivery.id, "delivery");
+  } catch (error) {
+    toast(error.message || "库存扣减失败，请刷新后重试");
+    return;
+  }
+  results.forEach((result) => {
+    const item = db.inventory.find((candidate) => candidate.id === result.inventoryId);
+    if (item) { item.stock = result.afterStock; item.updatedAt = nowIso(); }
+    db.inventoryLogs.unshift({ id: result.movementId, itemId: result.inventoryId, action: result.action, quantity: result.quantity, beforeStock: result.beforeStock, afterStock: result.afterStock, sourceId: delivery.id, sourceType: "delivery", operatorId: state.currentUser.id, createdAt: nowIso(), remark: result.remark });
+  });
   delivery.items = items;
   applyLegacyItemSummary(delivery);
   delivery.status = "已出库";
@@ -3410,14 +3442,24 @@ function setAfterSalesDisposition(id, status, message) {
   render();
 }
 
-function returnAfterSalesToStock(id, selection = {}) {
+async function returnAfterSalesToStock(id, selection = {}) {
   const record = getAfterSalesReturnRecord(id);
   const validation = record ? validateAfterSalesInventory(record, selection) : { ok: false, message: "售后工单不存在" };
   if (!validation.ok) return toast(validation.message);
   if (record.returnStockApplied) return toast("该售后单已完成退库，不能重复增加库存");
+  let results;
+  try {
+    results = await adjustInventoryOnServer([{ inventoryId: validation.item.id, delta: validation.quantity, action: "入库", remark: `售后退库 ${record.code}` }], record.id, "aftersales");
+  } catch (error) {
+    toast(error.message || "售后退库失败，请刷新后重试");
+    return;
+  }
+  const result = results[0];
+  validation.item.stock = result.afterStock;
+  validation.item.updatedAt = nowIso();
+  db.inventoryLogs.unshift({ id: result.movementId, itemId: validation.item.id, action: result.action, quantity: result.quantity, beforeStock: result.beforeStock, afterStock: result.afterStock, sourceId: record.id, sourceType: "aftersales", operatorId: state.currentUser.id, createdAt: nowIso(), remark: result.remark });
   record.inventoryId = validation.item.id;
   record.quantity = validation.quantity;
-  applyInventoryChange(validation.item.id, "入库", validation.quantity, `售后退库 ${record.code}`, record.id, "aftersales");
   record.returnStockApplied = true;
   record.returnedAt = nowIso();
   record.status = record.type === "换货" ? "待换货" : "已退库";
@@ -3546,8 +3588,8 @@ document.addEventListener("click", (event) => {
   if (arrive) {
     const purchase = db.purchases.find((p) => p.id === arrive.dataset.arrive);
     if (!purchase || purchase.status !== "在途" || !canWorkflow("purchase_receive")) return;
-    confirmAction("确认到货入库", `确认 ${purchase.code} 已到货并入库吗？确认后库存会自动增加并写入库存流水。`, () => {
-      if (!receivePurchase(purchase)) return;
+    confirmAction("确认到货入库", `确认 ${purchase.code} 已到货并入库吗？确认后库存会自动增加并写入库存流水。`, async () => {
+      if (!await receivePurchase(purchase)) return;
       purchase.status = "已到货";
       purchase.updatedAt = nowIso();
       saveData();

@@ -2,7 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { createSessionToken, verifyPassword } = require("./lib/security");
-const { adjustInventory } = require("./lib/inventory-service");
+const { adjustInventory, adjustInventoryBatch } = require("./lib/inventory-service");
 const {
   initializeDatabase,
   readState,
@@ -256,8 +256,8 @@ async function handleApi(req, res) {
     if (req.method === "POST" && inventoryAdjustment) {
       const user = await requireUser(req, res);
       if (!user) return;
-      if (!["admin", "warehouse"].includes(user.role)) {
-        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "仅管理员或仓库人员可以调整库存" });
+      if (!["admin", "warehouse", "purchase", "aftersales"].includes(user.role)) {
+        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能执行库存变动" });
         return;
       }
       const payload = JSON.parse(await readBody(req) || "{}");
@@ -271,6 +271,18 @@ async function handleApi(req, res) {
         remark: payload.remark,
       });
       sendJson(res, 200, { ok: true, ...result });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/inventory/adjustments") {
+      const user = await requireUser(req, res);
+      if (!user) return;
+      if (!["admin", "warehouse", "purchase", "aftersales"].includes(user.role)) {
+        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能执行库存变动" });
+        return;
+      }
+      const payload = JSON.parse(await readBody(req) || "{}");
+      const results = await adjustInventoryBatch({ adjustments: payload.adjustments, operatorId: user.id, sourceId: payload.sourceId, sourceModule: payload.sourceModule });
+      sendJson(res, 200, { ok: true, results });
       return;
     }
     if (req.method === "GET" && req.url === "/api/db") {
