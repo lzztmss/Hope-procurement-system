@@ -1298,7 +1298,7 @@ function renderApp() {
           <img class="brand-logo" src="./assets/logo.jpg" alt="海魄科技 Logo" />
           <div>
             <div class="brand-title">心连心运营系统</div>
-            <div class="brand-subtitle">智能养老业务公网生产版</div>
+            <div class="brand-subtitle">智能养老业务重构测试版</div>
           </div>
         </div>
         <nav class="nav">

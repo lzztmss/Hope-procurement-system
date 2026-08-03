@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { createSessionToken, verifyPassword } = require("./lib/security");
+const { adjustInventory } = require("./lib/inventory-service");
 const {
   initializeDatabase,
   readState,
@@ -16,6 +17,7 @@ const ROOT = __dirname;
 const APP_DIR = path.join(ROOT, "app");
 const INITIAL_DB = path.join(ROOT, "data", "initial-db.json");
 const ENV_FILE = path.join(ROOT, ".env");
+loadEnv();
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || "127.0.0.1";
 const MAX_BODY_BYTES = 25 * 1024 * 1024;
@@ -250,6 +252,27 @@ async function handleApi(req, res) {
       sendJson(res, 200, { ok: true, user });
       return;
     }
+    const inventoryAdjustment = req.url.match(/^\/api\/inventory\/([^/]+)\/adjust$/);
+    if (req.method === "POST" && inventoryAdjustment) {
+      const user = await requireUser(req, res);
+      if (!user) return;
+      if (!["admin", "warehouse"].includes(user.role)) {
+        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "仅管理员或仓库人员可以调整库存" });
+        return;
+      }
+      const payload = JSON.parse(await readBody(req) || "{}");
+      const result = await adjustInventory({
+        inventoryId: decodeURIComponent(inventoryAdjustment[1]),
+        delta: payload.delta,
+        action: payload.action,
+        operatorId: user.id,
+        sourceId: payload.sourceId,
+        sourceModule: payload.sourceModule,
+        remark: payload.remark,
+      });
+      sendJson(res, 200, { ok: true, ...result });
+      return;
+    }
     if (req.method === "GET" && req.url === "/api/db") {
       const user = await requireUser(req, res);
       if (!user) return;
@@ -288,7 +311,6 @@ async function handleApi(req, res) {
 }
 
 async function start() {
-  loadEnv();
   if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
     throw new Error("SESSION_SECRET must be configured and at least 32 characters");
   }
