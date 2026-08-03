@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { createSessionToken, verifyPassword } = require("./lib/security");
 const { adjustInventory, adjustInventoryBatch } = require("./lib/inventory-service");
+const { sendJson, sendText, readBody, parseCookies } = require("./lib/http");
 const {
   initializeDatabase,
   readState,
@@ -48,49 +49,6 @@ function loadEnv() {
   }
 }
 
-function sendJson(res, status, payload) {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": Buffer.byteLength(body),
-    "Cache-Control": "no-store",
-  });
-  res.end(body);
-}
-
-function sendText(res, status, text) {
-  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
-  res.end(text);
-}
-
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error("Request body too large"));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
-}
-
-function parseCookies(req) {
-  const cookies = {};
-  const header = req.headers.cookie || "";
-  for (const part of header.split(";")) {
-    const [key, ...rest] = part.trim().split("=");
-    if (!key) continue;
-    cookies[key] = decodeURIComponent(rest.join("="));
-  }
-  return cookies;
-}
 
 function sessionCookie(token) {
   const maxAge = Number(process.env.SESSION_HOURS || 12) * 60 * 60;
@@ -220,7 +178,7 @@ async function handleApi(req, res) {
       return;
     }
     if (req.method === "POST" && req.url === "/api/auth/login") {
-      const raw = await readBody(req);
+      const raw = await readBody(req, MAX_BODY_BYTES);
       const payload = JSON.parse(raw || "{}");
       const account = String(payload.account || "").trim();
       const password = String(payload.password || "");
@@ -260,7 +218,7 @@ async function handleApi(req, res) {
         sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能执行库存变动" });
         return;
       }
-      const payload = JSON.parse(await readBody(req) || "{}");
+      const payload = JSON.parse(await readBody(req, MAX_BODY_BYTES) || "{}");
       const result = await adjustInventory({
         inventoryId: decodeURIComponent(inventoryAdjustment[1]),
         delta: payload.delta,
@@ -280,9 +238,9 @@ async function handleApi(req, res) {
         sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能执行库存变动" });
         return;
       }
-      const payload = JSON.parse(await readBody(req) || "{}");
-      const results = await adjustInventoryBatch({ adjustments: payload.adjustments, operatorId: user.id, sourceId: payload.sourceId, sourceModule: payload.sourceModule });
-      sendJson(res, 200, { ok: true, results });
+      const payload = JSON.parse(await readBody(req, MAX_BODY_BYTES) || "{}");
+      const batch = await adjustInventoryBatch({ adjustments: payload.adjustments, operatorId: user.id, sourceId: payload.sourceId, sourceModule: payload.sourceModule });
+      sendJson(res, 200, { ok: true, ...batch });
       return;
     }
     if (req.method === "GET" && req.url === "/api/db") {
@@ -294,7 +252,7 @@ async function handleApi(req, res) {
     if ((req.method === "PUT" || req.method === "POST") && req.url === "/api/db") {
       const user = await requireUser(req, res);
       if (!user) return;
-      const payload = JSON.parse(await readBody(req));
+      const payload = JSON.parse(await readBody(req, MAX_BODY_BYTES));
       const currentState = await readState();
       const currentRevision = Number(currentState.meta?.revision || 0);
       const incomingRevision = Number(payload.meta?.revision || 0);

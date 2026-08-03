@@ -714,7 +714,7 @@ async function adjustInventoryOnServer(adjustments, sourceId, sourceModule) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.message || payload.error || "库存服务处理失败");
-  return payload.results || [];
+  return { results: payload.results || [], revision: Number(payload.revision) };
 }
 
 function logAction(action, moduleId, recordId, detail) {
@@ -2970,7 +2970,9 @@ async function receivePurchase(purchase) {
   let results;
   if (!purchase.receivedApplied) {
     try {
-      results = await adjustInventoryOnServer(inventoryLines.map(({ line, item }) => ({ inventoryId: item.id, delta: Number(line.quantity || 0), action: "入库", remark: `采购到货 ${purchase.code}` })), purchase.id, "purchase");
+      const payload = await adjustInventoryOnServer(inventoryLines.map(({ line, item }) => ({ inventoryId: item.id, delta: Number(line.quantity || 0), action: "入库", remark: `采购到货 ${purchase.code}` })), purchase.id, "purchase");
+      results = payload.results;
+      if (Number.isFinite(payload.revision)) db.meta = { ...(db.meta || {}), revision: payload.revision };
     } catch (error) {
       toast(error.message || "采购到货入库失败，请刷新后重试");
       return false;
@@ -3275,7 +3277,9 @@ async function confirmDeliveryOutbound(deliveryId) {
   if (insufficient) return toast(`库存不足：${itemLabel(insufficient)}，本出库单必须全部货齐后一次性发货。`);
   let results;
   try {
-    results = await adjustInventoryOnServer(items.map((line) => ({ inventoryId: line.inventoryId, delta: -Number(line.quantity || 0), action: "出库", remark: `出库单 ${delivery.code}` })), delivery.id, "delivery");
+    const payload = await adjustInventoryOnServer(items.map((line) => ({ inventoryId: line.inventoryId, delta: -Number(line.quantity || 0), action: "出库", remark: `出库单 ${delivery.code}` })), delivery.id, "delivery");
+    results = payload.results;
+    if (Number.isFinite(payload.revision)) db.meta = { ...(db.meta || {}), revision: payload.revision };
   } catch (error) {
     toast(error.message || "库存扣减失败，请刷新后重试");
     return;
@@ -3449,7 +3453,9 @@ async function returnAfterSalesToStock(id, selection = {}) {
   if (record.returnStockApplied) return toast("该售后单已完成退库，不能重复增加库存");
   let results;
   try {
-    results = await adjustInventoryOnServer([{ inventoryId: validation.item.id, delta: validation.quantity, action: "入库", remark: `售后退库 ${record.code}` }], record.id, "aftersales");
+    const payload = await adjustInventoryOnServer([{ inventoryId: validation.item.id, delta: validation.quantity, action: "入库", remark: `售后退库 ${record.code}` }], record.id, "aftersales");
+    results = payload.results;
+    if (Number.isFinite(payload.revision)) db.meta = { ...(db.meta || {}), revision: payload.revision };
   } catch (error) {
     toast(error.message || "售后退库失败，请刷新后重试");
     return;
