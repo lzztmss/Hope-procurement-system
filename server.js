@@ -9,6 +9,7 @@ const { listDocuments } = require("./lib/document-repository");
 const { createAuthRoute } = require("./routes/auth");
 const { createInventoryRoute } = require("./routes/inventory");
 const { createDocumentRoute } = require("./routes/documents");
+const { createStateRoute } = require("./routes/state");
 const {
   initializeDatabase,
   readState,
@@ -165,6 +166,7 @@ const inventoryRoute = createInventoryRoute({
 });
 
 const documentRoute = createDocumentRoute({ sendJson, requireUser, listDocuments });
+const stateRoute = createStateRoute({ readBody, maxBodyBytes: MAX_BODY_BYTES, sendJson, requireUser, readState, writeState, assertSensitiveStateWrite });
 
 function safeStaticPath(urlPath) {
   let decoded = decodeURIComponent(urlPath.split("?")[0]);
@@ -215,36 +217,7 @@ async function handleApi(req, res) {
     if (await authRoute.handle(req, res)) return;
     if (await inventoryRoute.handle(req, res)) return;
     if (await documentRoute.handle(req, res)) return;
-    if (req.method === "GET" && req.url === "/api/db") {
-      const user = await requireUser(req, res);
-      if (!user) return;
-      sendJson(res, 200, await readState());
-      return;
-    }
-    if ((req.method === "PUT" || req.method === "POST") && req.url === "/api/db") {
-      const user = await requireUser(req, res);
-      if (!user) return;
-      const payload = JSON.parse(await readBody(req, MAX_BODY_BYTES));
-      const currentState = await readState();
-      const currentRevision = Number(currentState.meta?.revision || 0);
-      const incomingRevision = Number(payload.meta?.revision || 0);
-      // 整份业务数据会一起保存。拒绝旧页面的写入，避免覆盖其他页面刚保存的内容。
-      if (currentRevision && incomingRevision !== currentRevision) {
-        sendJson(res, 409, {
-          ok: false,
-          error: "DATA_OUTDATED",
-          message: "数据已在其他页面更新，请刷新后再操作。",
-          revision: currentRevision,
-        });
-        return;
-      }
-      assertSensitiveStateWrite(user, currentState, payload);
-      payload.meta = { ...(payload.meta || {}), revision: currentRevision + 1 };
-      delete payload.meta.forceDelete;
-      const saved = await writeState(payload);
-      sendJson(res, 200, { ok: true, savedAt: new Date().toISOString(), users: saved.users.length, revision: saved.meta?.revision });
-      return;
-    }
+    if (await stateRoute.handle(req, res)) return;
     sendJson(res, 404, { ok: false, error: "API not found" });
   } catch (error) {
     console.error(error);
