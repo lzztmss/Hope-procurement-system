@@ -114,6 +114,15 @@ function assertSensitiveStateWrite(user, currentState, incomingState) {
   const incomingProducts = byId(incomingState.products);
   const currentInventory = byId(currentState.inventory);
   const incomingInventory = byId(incomingState.inventory);
+  for (const [collection, label] of [["salesOrders", "销售订单号"], ["purchases", "采购单号"], ["deliveries", "出库单号"]]) {
+    const seen = new Set();
+    for (const record of incomingState[collection] || []) {
+      const code = String(record.code || "").trim();
+      if (!code) continue;
+      if (seen.has(code)) throw new Error(`${label}“${code}”重复，请重新生成后保存`);
+      seen.add(code);
+    }
+  }
 
   for (const [id, product] of currentProducts) {
     const next = incomingProducts.get(id);

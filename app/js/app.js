@@ -8,6 +8,15 @@ const SERVER_MODE = location.protocol.startsWith("http");
 const PUBLIC_PRODUCTION = true;
 
 const today = new Date().toISOString().slice(0, 10);
+let documentCodeSequence = 0;
+
+function nextDocumentCode(prefix) {
+  documentCodeSequence = (documentCodeSequence + 1) % 1000;
+  const timestamp = Date.now().toString().slice(-8);
+  const sequence = String(documentCodeSequence).padStart(3, "0");
+  const entropy = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return `${prefix}${timestamp}-${sequence}${entropy}`;
+}
 
 const roles = {
   admin: {
@@ -1874,12 +1883,12 @@ function getDefaultRecord(moduleId) {
     else if (type === "multirole") record[key] = [];
     else record[key] = "";
   });
-  if (moduleId === "leads") record.code = `L${Date.now().toString().slice(-8)}`;
-  if (moduleId === "salesOrders") record.code = `SO${Date.now().toString().slice(-8)}`;
-  if (moduleId === "purchases") record.code = `P${Date.now().toString().slice(-8)}`;
-  if (moduleId === "deliveries") record.code = `D${Date.now().toString().slice(-8)}`;
-  if (moduleId === "trainings") record.code = `T${Date.now().toString().slice(-8)}`;
-  if (moduleId === "aftersales") record.code = `A${Date.now().toString().slice(-8)}`;
+  if (moduleId === "leads") record.code = nextDocumentCode("L");
+  if (moduleId === "salesOrders") record.code = nextDocumentCode("SO");
+  if (moduleId === "purchases") record.code = nextDocumentCode("P");
+  if (moduleId === "deliveries") record.code = nextDocumentCode("D");
+  if (moduleId === "trainings") record.code = nextDocumentCode("T");
+  if (moduleId === "aftersales") record.code = nextDocumentCode("A");
   if (moduleId === "products") record.code = `PROD-${Date.now().toString().slice(-8)}`;
   return record;
 }
