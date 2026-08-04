@@ -11,6 +11,7 @@ const { createInventoryRoute } = require("./routes/inventory");
 const { createDocumentRoute } = require("./routes/documents");
 const { createStateRoute } = require("./routes/state");
 const { canPerformWorkflow } = require("./lib/workflow-permissions");
+const { filterStateForUser, assertStateWriteAccess, mergeStateForUser, canAccessModule, canSeeRecord } = require("./lib/access-control");
 const {
   initializeDatabase,
   readState,
@@ -102,6 +103,49 @@ function inventoryHasReferences(state, item) {
   return ["deliveries", "aftersales"].some((collection) => (state[collection] || []).some((record) => record.inventoryId === item.id));
 }
 
+const salesOrderStages = ["草稿", "待销售审批", "待库存确认", "待采购审批", "待采购到货", "待出库", "已出库", "已完成"];
+const irreversiblePurchaseStatuses = new Set(["已下单", "在途", "已到货"]);
+const irreversibleDeliveryStatuses = new Set(["已出库", "配送中", "已签收", "已验收"]);
+const reversiblePurchaseStatuses = new Set(["待采购审批", "待技术确认", "待采购确认", "异常"]);
+
+function relatedRecords(state, collection, salesOrderId) {
+  return (state[collection] || []).filter((record) => record?.sourceSalesOrderId === salesOrderId || record?.salesOrderId === salesOrderId);
+}
+
+function assertWorkflowRollbackSafety(currentState, incomingState) {
+  const currentOrders = byId(currentState.salesOrders);
+  const incomingOrders = byId(incomingState.salesOrders);
+  for (const [id, currentOrder] of currentOrders) {
+    const nextOrder = incomingOrders.get(id);
+    if (!nextOrder || currentOrder.status === nextOrder.status) continue;
+    const oldIndex = salesOrderStages.indexOf(currentOrder.status);
+    const nextIndex = salesOrderStages.indexOf(nextOrder.status);
+    const rollingBack = nextOrder.status === "已取消" || (oldIndex >= 0 && nextIndex >= 0 && nextIndex < oldIndex);
+    if (!rollingBack) continue;
+    const received = relatedRecords(currentState, "purchases", id).find((record) => record.status === "已到货" || record.receivedApplied);
+    if (received) throw new Error(`不能退回销售订单：关联采购单 ${received.code || received.id} 已到货并已影响库存，请走退货/退库流程`);
+    const placed = relatedRecords(currentState, "purchases", id).find((record) => irreversiblePurchaseStatuses.has(record.status));
+    if (placed) throw new Error(`不能退回销售订单：关联采购单 ${placed.code || placed.id} 已下单或在途，请先由采购人员处理取消`);
+    const delivered = relatedRecords(currentState, "deliveries", id).find((record) => irreversibleDeliveryStatuses.has(record.status));
+    if (delivered) throw new Error(`不能退回销售订单：关联出库单 ${delivered.code || delivered.id} 已出库，请走退库/红冲流程`);
+    const training = relatedRecords(currentState, "trainings", id)[0];
+    if (training) throw new Error(`不能退回销售订单：已生成培训验收单 ${training.code || training.id}，请先按售后或退库流程处理`);
+  }
+
+  for (const [id, currentPurchase] of byId(currentState.purchases)) {
+    const nextPurchase = byId(incomingState.purchases).get(id);
+    if (nextPurchase?.status === "已取消" && currentPurchase.status !== "已取消" && !reversiblePurchaseStatuses.has(currentPurchase.status)) {
+      throw new Error(`采购单 ${currentPurchase.code || id} 已下单、在途或到货，不能直接作废`);
+    }
+  }
+  for (const [id, currentDelivery] of byId(currentState.deliveries)) {
+    const nextDelivery = byId(incomingState.deliveries).get(id);
+    if (nextDelivery?.status === "已取消" && currentDelivery.status !== "已取消" && currentDelivery.status !== "待出库") {
+      throw new Error(`出库单 ${currentDelivery.code || id} 已进入出库流程，不能直接作废`);
+    }
+  }
+}
+
 function assertSensitiveStateWrite(user, currentState, incomingState) {
   const isAdmin = user?.role === "admin";
   const forceDelete = incomingState.meta?.forceDelete;
@@ -123,6 +167,7 @@ function assertSensitiveStateWrite(user, currentState, incomingState) {
       seen.add(code);
     }
   }
+  assertWorkflowRollbackSafety(currentState, incomingState);
 
   for (const [id, product] of currentProducts) {
     const next = incomingProducts.get(id);
@@ -178,10 +223,12 @@ const inventoryRoute = createInventoryRoute({
   receivePurchase,
   confirmDeliveryOutbound,
   canWorkflow,
+  readState,
+  canAccessModule,
 });
 
-const documentRoute = createDocumentRoute({ sendJson, requireUser, listDocuments });
-const stateRoute = createStateRoute({ readBody, maxBodyBytes: MAX_BODY_BYTES, sendJson, requireUser, readState, writeState, assertSensitiveStateWrite });
+const documentRoute = createDocumentRoute({ sendJson, requireUser, listDocuments, readState, canAccessModule, canSeeRecord });
+const stateRoute = createStateRoute({ readBody, maxBodyBytes: MAX_BODY_BYTES, sendJson, requireUser, readState, writeState, assertSensitiveStateWrite, filterStateForUser, assertStateWriteAccess, mergeStateForUser });
 
 function safeStaticPath(urlPath) {
   let decoded = decodeURIComponent(urlPath.split("?")[0]);

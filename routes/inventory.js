@@ -10,6 +10,8 @@ function createInventoryRoute({
   receivePurchase,
   confirmDeliveryOutbound,
   canWorkflow,
+  readState,
+  canAccessModule,
 }) {
   const permittedRoles = new Set(["admin", "warehouse", "purchase", "aftersales"]);
   const ensureRoles = new Set(["admin", "warehouse", "purchase"]);
@@ -24,6 +26,10 @@ function createInventoryRoute({
     if (req.method === "GET" && req.url === "/api/inventory") {
       const user = await requireUser(req, res);
       if (!user) return true;
+      if (!canAccessModule(await readState(), user, "inventory", "view")) {
+        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前账号无权查看库存" });
+        return true;
+      }
       sendJson(res, 200, { ok: true, inventory: await listInventory() });
       return true;
     }

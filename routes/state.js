@@ -1,9 +1,10 @@
-function createStateRoute({ readBody, maxBodyBytes, sendJson, requireUser, readState, writeState, assertSensitiveStateWrite }) {
+function createStateRoute({ readBody, maxBodyBytes, sendJson, requireUser, readState, writeState, assertSensitiveStateWrite, filterStateForUser, assertStateWriteAccess, mergeStateForUser }) {
   async function handle(req, res) {
     if (req.method === "GET" && req.url === "/api/db") {
       const user = await requireUser(req, res);
       if (!user) return true;
-      sendJson(res, 200, await readState());
+      const state = await readState();
+      sendJson(res, 200, filterStateForUser(state, user));
       return true;
     }
     if (!((req.method === "PUT" || req.method === "POST") && req.url === "/api/db")) return false;
@@ -18,16 +19,20 @@ function createStateRoute({ readBody, maxBodyBytes, sendJson, requireUser, readS
       return true;
     }
     try {
-      assertSensitiveStateWrite(user, currentState, payload);
+      assertStateWriteAccess(user, currentState, payload);
+      // 非管理员拿到的是已裁剪的视图，先与完整状态合并后再做完整性校验，
+      // 避免“看不到产品”被误判为删除产品。
+      const merged = mergeStateForUser(currentState, payload, user);
+      assertSensitiveStateWrite(user, currentState, merged);
+      merged.meta = { ...(merged.meta || {}), revision: currentRevision + 1 };
+      delete merged.meta.forceDelete;
+      const saved = await writeState(merged);
+      sendJson(res, 200, { ok: true, savedAt: new Date().toISOString(), users: saved.users.length, revision: saved.meta?.revision });
+      return true;
     } catch (error) {
       sendJson(res, 400, { ok: false, error: "STATE_VALIDATION", message: error.message });
       return true;
     }
-    payload.meta = { ...(payload.meta || {}), revision: currentRevision + 1 };
-    delete payload.meta.forceDelete;
-    const saved = await writeState(payload);
-    sendJson(res, 200, { ok: true, savedAt: new Date().toISOString(), users: saved.users.length, revision: saved.meta?.revision });
-    return true;
   }
   return { handle };
 }
