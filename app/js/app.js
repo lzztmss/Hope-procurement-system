@@ -1,5 +1,5 @@
 import { workflowActionRoles, workflowActions } from "./workflow-config.js";
-import { getCurrentUser, login, logout } from "./api-client.js";
+import { adjustInventory as adjustInventoryRequest, ensureInventory as ensureInventoryRequest, getCurrentUser, loadDocuments, loadInventory, loadState, login, logout, outboundDelivery, receivePurchase as receivePurchaseRequest, saveState } from "./api-client.js";
 
 const APP_KEY = "xlx_ops_mvp_v1";
 const SESSION_KEY = "xlx_ops_session_v1";
@@ -640,18 +640,17 @@ function getInitialData() {
 async function loadData() {
   if (SERVER_MODE) {
     try {
-      const response = await fetch("/api/db", { cache: "no-store", credentials: "same-origin" });
+      const { response, payload } = await loadState();
       if (response.ok) {
-        const data = normalizeData(await response.json());
-        const inventoryResponse = await fetch("/api/inventory", { cache: "no-store", credentials: "same-origin" });
+        const data = normalizeData(payload);
+        const { response: inventoryResponse, payload: inventoryPayload } = await loadInventory();
         if (inventoryResponse.ok) {
-          const inventoryPayload = await inventoryResponse.json();
           data.inventory = inventoryPayload.inventory || data.inventory;
         }
         const documentModules = ["salesOrders", "purchases", "deliveries", "trainings", "aftersales", "leads"];
         const documentResponses = await Promise.all(documentModules.map(async (moduleId) => {
-          const moduleResponse = await fetch(`/api/${moduleId}`, { cache: "no-store", credentials: "same-origin" });
-          return moduleResponse.ok ? [moduleId, (await moduleResponse.json())[moduleId]] : null;
+          const { response: moduleResponse, payload: modulePayload } = await loadDocuments(moduleId);
+          return moduleResponse.ok ? [moduleId, modulePayload[moduleId]] : null;
         }));
         documentResponses.filter(Boolean).forEach(([moduleId, records]) => { data[moduleId] = records || data[moduleId]; });
         localStorage.setItem(APP_KEY, JSON.stringify(data));
@@ -690,19 +689,13 @@ function saveData() {
       ? { ...db, meta: { ...(db.meta || {}), forceDelete: state.forceDelete } }
       : db;
     state.forceDelete = null;
-    fetch("/api/db", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify(payload),
-    }).then((response) => {
+    saveState(payload).then(({ response, payload: result }) => {
       if (response.ok) {
-        return response.json().then((result) => {
-          if (Number.isFinite(Number(result.revision))) {
-            db.meta = { ...(db.meta || {}), revision: Number(result.revision) };
-            localStorage.setItem(APP_KEY, JSON.stringify(db));
-          }
-        });
+        if (Number.isFinite(Number(result.revision))) {
+          db.meta = { ...(db.meta || {}), revision: Number(result.revision) };
+          localStorage.setItem(APP_KEY, JSON.stringify(db));
+        }
+        return;
       }
       if (PUBLIC_PRODUCTION && response.status === 401) {
         state.serverUser = null;
@@ -718,25 +711,13 @@ function saveData() {
 }
 
 async function adjustInventoryOnServer(adjustments, sourceId, sourceModule) {
-  const response = await fetch("/api/inventory/adjustments", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    body: JSON.stringify({ adjustments, sourceId, sourceModule }),
-  });
-  const payload = await response.json().catch(() => ({}));
+  const { response, payload } = await adjustInventoryRequest(adjustments, sourceId, sourceModule);
   if (!response.ok) throw new Error(payload.message || payload.error || "库存服务处理失败");
   return { results: payload.results || [], revision: Number(payload.revision) };
 }
 
 async function ensureInventoryOnServer(item) {
-  const response = await fetch("/api/inventory/ensure", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    body: JSON.stringify({ item }),
-  });
-  const payload = await response.json().catch(() => ({}));
+  const { response, payload } = await ensureInventoryRequest(item);
   if (!response.ok || !payload.ok) throw new Error(payload.message || payload.error || "建立库存记录失败");
   return payload;
 }
@@ -2980,8 +2961,7 @@ function applyInventoryChange(itemId, action, quantity, remark, sourceId = "", s
 async function receivePurchase(purchase) {
   if (SERVER_MODE) {
     try {
-      const response = await fetch(`/api/purchases/${encodeURIComponent(purchase.id)}/receive`, { method: "POST", credentials: "same-origin" });
-      const payload = await response.json().catch(() => ({}));
+      const { response, payload } = await receivePurchaseRequest(purchase.id);
       if (!response.ok || !payload.ok) throw new Error(payload.message || payload.error || "采购到货入库失败");
       db = await loadData();
       return true;
@@ -3317,8 +3297,7 @@ async function confirmDeliveryOutbound(deliveryId) {
   if (!delivery || delivery.status !== "待出库" || !canWorkflow("delivery_outbound")) return;
   if (SERVER_MODE) {
     try {
-      const response = await fetch(`/api/deliveries/${encodeURIComponent(delivery.id)}/outbound`, { method: "POST", credentials: "same-origin" });
-      const payload = await response.json().catch(() => ({}));
+      const { response, payload } = await outboundDelivery(delivery.id);
       if (!response.ok || !payload.ok) throw new Error(payload.message || payload.error || "库存扣减失败");
       db = await loadData();
       toast("已出库，库存已自动扣减");
