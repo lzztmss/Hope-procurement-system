@@ -9,11 +9,10 @@ function createInventoryRoute({
   ensureInventory,
   receivePurchase,
   confirmDeliveryOutbound,
+  canWorkflow,
 }) {
   const permittedRoles = new Set(["admin", "warehouse", "purchase", "aftersales"]);
   const ensureRoles = new Set(["admin", "warehouse", "purchase"]);
-  const receiveRoles = new Set(["admin", "warehouse", "purchase"]);
-  const outboundRoles = new Set(["admin", "warehouse", "purchase"]);
 
   function canAdjust(user, res) {
     if (permittedRoles.has(user.role)) return true;
@@ -74,7 +73,7 @@ function createInventoryRoute({
     if (req.method === "POST" && receipt) {
       const user = await requireUser(req, res);
       if (!user) return true;
-      if (!receiveRoles.has(user.role)) {
+      if (!await canWorkflow(user, "purchase_receive")) {
         sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能确认采购到货" });
         return true;
       }
@@ -86,7 +85,7 @@ function createInventoryRoute({
     if (req.method === "POST" && outbound) {
       const user = await requireUser(req, res);
       if (!user) return true;
-      if (!outboundRoles.has(user.role)) {
+      if (!await canWorkflow(user, "delivery_outbound")) {
         sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能确认出库" });
         return true;
       }

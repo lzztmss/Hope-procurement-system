@@ -10,6 +10,7 @@ const { createAuthRoute } = require("./routes/auth");
 const { createInventoryRoute } = require("./routes/inventory");
 const { createDocumentRoute } = require("./routes/documents");
 const { createStateRoute } = require("./routes/state");
+const { canPerformWorkflow } = require("./lib/workflow-permissions");
 const {
   initializeDatabase,
   readState,
@@ -152,6 +153,10 @@ async function requireUser(req, res) {
   return user;
 }
 
+async function canWorkflow(user, action) {
+  return canPerformWorkflow(await readState(), user, action);
+}
+
 const inventoryRoute = createInventoryRoute({
   readBody,
   maxBodyBytes: MAX_BODY_BYTES,
@@ -163,6 +168,7 @@ const inventoryRoute = createInventoryRoute({
   ensureInventory,
   receivePurchase,
   confirmDeliveryOutbound,
+  canWorkflow,
 });
 
 const documentRoute = createDocumentRoute({ sendJson, requireUser, listDocuments });
