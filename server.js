@@ -8,6 +8,7 @@ const { listInventory } = require("./lib/inventory-repository");
 const { listDocuments } = require("./lib/document-repository");
 const { createAuthRoute } = require("./routes/auth");
 const { createInventoryRoute } = require("./routes/inventory");
+const { createDocumentRoute } = require("./routes/documents");
 const {
   initializeDatabase,
   readState,
@@ -161,6 +162,8 @@ const inventoryRoute = createInventoryRoute({
   ensureInventory,
 });
 
+const documentRoute = createDocumentRoute({ sendJson, requireUser, listDocuments });
+
 function safeStaticPath(urlPath) {
   let decoded = decodeURIComponent(urlPath.split("?")[0]);
   if (decoded === "/") decoded = "/index.html";
@@ -209,14 +212,7 @@ async function handleApi(req, res) {
     }
     if (await authRoute.handle(req, res)) return;
     if (await inventoryRoute.handle(req, res)) return;
-    const documentRoute = req.url.match(/^\/api\/(salesOrders|purchases|deliveries|trainings|aftersales|leads)$/);
-    if (req.method === "GET" && documentRoute) {
-      const user = await requireUser(req, res);
-      if (!user) return;
-      const kind = documentRoute[1];
-      sendJson(res, 200, { ok: true, [kind]: await listDocuments(kind) });
-      return;
-    }
+    if (await documentRoute.handle(req, res)) return;
     if (req.method === "GET" && req.url === "/api/db") {
       const user = await requireUser(req, res);
       if (!user) return;
