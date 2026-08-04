@@ -8,6 +8,7 @@ function createInventoryRoute({
   adjustInventoryBatch,
   ensureInventory,
   receivePurchase,
+  confirmDeliveryOutbound,
 }) {
   const permittedRoles = new Set(["admin", "warehouse", "purchase", "aftersales"]);
   const ensureRoles = new Set(["admin", "warehouse", "purchase"]);
@@ -72,6 +73,14 @@ function createInventoryRoute({
       const user = await requireUser(req, res);
       if (!user || !permittedRoles.has(user.role)) return true;
       const result = await receivePurchase({ purchaseId: decodeURIComponent(receipt[1]), operatorId: user.id });
+      sendJson(res, 200, { ok: true, ...result });
+      return true;
+    }
+    const outbound = req.url.match(/^\/api\/deliveries\/([^/]+)\/outbound$/);
+    if (req.method === "POST" && outbound) {
+      const user = await requireUser(req, res);
+      if (!user || !permittedRoles.has(user.role)) return true;
+      const result = await confirmDeliveryOutbound({ deliveryId: decodeURIComponent(outbound[1]), operatorId: user.id });
       sendJson(res, 200, { ok: true, ...result });
       return true;
     }

@@ -2,7 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { createSessionToken, verifyPassword } = require("./lib/security");
-const { adjustInventory, adjustInventoryBatch, ensureInventory, receivePurchase } = require("./lib/inventory-service");
+const { adjustInventory, adjustInventoryBatch, ensureInventory, receivePurchase, confirmDeliveryOutbound } = require("./lib/inventory-service");
 const { sendJson, sendText, readBody, parseCookies } = require("./lib/http");
 const { listInventory } = require("./lib/inventory-repository");
 const { listDocuments } = require("./lib/document-repository");
@@ -161,6 +161,7 @@ const inventoryRoute = createInventoryRoute({
   adjustInventoryBatch,
   ensureInventory,
   receivePurchase,
+  confirmDeliveryOutbound,
 });
 
 const documentRoute = createDocumentRoute({ sendJson, requireUser, listDocuments });

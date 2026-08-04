@@ -3320,6 +3320,17 @@ function createDeliveryFromSalesOrder(orderId) {
 async function confirmDeliveryOutbound(deliveryId) {
   const delivery = db.deliveries.find((item) => item.id === deliveryId);
   if (!delivery || delivery.status !== "待出库" || !canWorkflow("delivery_outbound")) return;
+  if (SERVER_MODE) {
+    try {
+      const response = await fetch(`/api/deliveries/${encodeURIComponent(delivery.id)}/outbound`, { method: "POST", credentials: "same-origin" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(payload.message || payload.error || "库存扣减失败");
+      db = await loadData();
+      toast("已出库，库存已自动扣减");
+      render();
+    } catch (error) { toast(error.message || "库存扣减失败，请刷新后重试"); }
+    return;
+  }
   const itemValidation = validateDocumentItems("deliveries", delivery);
   if (!itemValidation.ok) return toast(itemValidation.message);
   const items = deliveryItems(delivery);
