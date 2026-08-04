@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "migrate": "node scripts/migrate_json_to_postgres.js"
+    "migrate": "node scripts/migrate_json_to_postgres.js",
+    "check": "node scripts/check.js"
   },
   "engines": {
     "node": ">=20"
