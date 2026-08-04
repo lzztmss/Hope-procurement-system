@@ -2,10 +2,11 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { createSessionToken, verifyPassword } = require("./lib/security");
-const { adjustInventory, adjustInventoryBatch } = require("./lib/inventory-service");
+const { adjustInventory, adjustInventoryBatch, ensureInventory } = require("./lib/inventory-service");
 const { sendJson, sendText, readBody, parseCookies } = require("./lib/http");
 const { listInventory } = require("./lib/inventory-repository");
 const { listDocuments } = require("./lib/document-repository");
+const { createAuthRoute } = require("./routes/auth");
 const {
   initializeDatabase,
   readState,
@@ -62,6 +63,23 @@ function clearSessionCookie() {
   const secure = process.env.COOKIE_SECURE !== "false" ? "; Secure" : "";
   return `${COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secure}`;
 }
+
+const authRoute = createAuthRoute({
+  readBody,
+  maxBodyBytes: MAX_BODY_BYTES,
+  parseCookies,
+  sendJson,
+  cookieName: COOKIE_NAME,
+  sessionCookie,
+  clearSessionCookie,
+  findUserByAccount,
+  createSession,
+  getSessionUser,
+  deleteSession,
+  createSessionToken,
+  verifyPassword,
+  sessionSecret: () => process.env.SESSION_SECRET || "",
+});
 
 function byId(records) {
   return new Map((records || []).filter((record) => record?.id).map((record) => [record.id, record]));
@@ -123,9 +141,7 @@ function assertSensitiveStateWrite(user, currentState, incomingState) {
 }
 
 async function requireUser(req, res) {
-  const secret = process.env.SESSION_SECRET || "";
-  const token = parseCookies(req)[COOKIE_NAME];
-  const user = await getSessionUser(token, secret);
+  const user = await authRoute.currentUser(req);
   if (!user) {
     sendJson(res, 401, { ok: false, error: "UNAUTHORIZED" });
     return null;
@@ -179,39 +195,7 @@ async function handleApi(req, res) {
       sendJson(res, 200, { ok: true, name: "心连心智能养老业务运营系统", mode: "production", time: new Date().toISOString() });
       return;
     }
-    if (req.method === "POST" && req.url === "/api/auth/login") {
-      const raw = await readBody(req, MAX_BODY_BYTES);
-      const payload = JSON.parse(raw || "{}");
-      const account = String(payload.account || "").trim();
-      const password = String(payload.password || "");
-      const user = await findUserByAccount(account);
-      if (!user || user.status !== "启用" || !verifyPassword(password, user.password_hash)) {
-        sendJson(res, 401, { ok: false, error: "账号或密码错误" });
-        return;
-      }
-      const token = createSessionToken();
-      await createSession(user.id, token, process.env.SESSION_SECRET || "", {
-        userAgent: req.headers["user-agent"] || "",
-        ip: req.socket.remoteAddress || "",
-      });
-      res.setHeader("Set-Cookie", sessionCookie(token));
-      const { password_hash, ...safeUser } = user;
-      sendJson(res, 200, { ok: true, user: safeUser });
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/auth/logout") {
-      const token = parseCookies(req)[COOKIE_NAME];
-      await deleteSession(token, process.env.SESSION_SECRET || "");
-      res.setHeader("Set-Cookie", clearSessionCookie());
-      sendJson(res, 200, { ok: true });
-      return;
-    }
-    if (req.method === "GET" && req.url === "/api/me") {
-      const user = await requireUser(req, res);
-      if (!user) return;
-      sendJson(res, 200, { ok: true, user });
-      return;
-    }
+    if (await authRoute.handle(req, res)) return;
     if (req.method === "GET" && req.url === "/api/inventory") {
       const user = await requireUser(req, res);
       if (!user) return;
@@ -257,6 +241,18 @@ async function handleApi(req, res) {
       const payload = JSON.parse(await readBody(req, MAX_BODY_BYTES) || "{}");
       const batch = await adjustInventoryBatch({ adjustments: payload.adjustments, operatorId: user.id, sourceId: payload.sourceId, sourceModule: payload.sourceModule });
       sendJson(res, 200, { ok: true, ...batch });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/inventory/ensure") {
+      const user = await requireUser(req, res);
+      if (!user) return;
+      if (!["admin", "warehouse", "purchase"].includes(user.role)) {
+        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能建立库存记录" });
+        return;
+      }
+      const payload = JSON.parse(await readBody(req, MAX_BODY_BYTES) || "{}");
+      const result = await ensureInventory({ item: payload.item, operatorId: user.id });
+      sendJson(res, 200, { ok: true, ...result });
       return;
     }
     if (req.method === "GET" && req.url === "/api/db") {

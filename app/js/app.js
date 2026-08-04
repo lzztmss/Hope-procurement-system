@@ -728,6 +728,18 @@ async function adjustInventoryOnServer(adjustments, sourceId, sourceModule) {
   return { results: payload.results || [], revision: Number(payload.revision) };
 }
 
+async function ensureInventoryOnServer(item) {
+  const response = await fetch("/api/inventory/ensure", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ item }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.ok) throw new Error(payload.message || payload.error || "建立库存记录失败");
+  return payload;
+}
+
 function logAction(action, moduleId, recordId, detail) {
   db.auditLogs = db.auditLogs || [];
   db.auditLogs.unshift({
@@ -2977,7 +2989,25 @@ async function receivePurchase(purchase) {
     return false;
   }
   const items = documentItems(purchase);
-  const inventoryLines = items.map((line) => ({ line, item: ensureInventoryForProduct(line.product, line.productId, line.model) }));
+  const inventoryLines = [];
+  for (const line of items) {
+    let item = inventoryForProduct(line.product, line.productId, line.model);
+    if (!item) {
+      const proposed = ensureInventoryForProduct(line.product, line.productId, line.model);
+      try {
+        const ensured = await ensureInventoryOnServer(proposed);
+        item = ensured.item;
+        const localIndex = db.inventory.findIndex((candidate) => candidate.id === proposed.id);
+        if (localIndex >= 0) db.inventory[localIndex] = item;
+        else db.inventory.unshift(item);
+        if (Number.isFinite(ensured.revision)) db.meta = { ...(db.meta || {}), revision: ensured.revision };
+      } catch (error) {
+        toast(error.message || "建立采购库存记录失败");
+        return false;
+      }
+    }
+    inventoryLines.push({ line, item });
+  }
   let results;
   if (!purchase.receivedApplied) {
     try {
