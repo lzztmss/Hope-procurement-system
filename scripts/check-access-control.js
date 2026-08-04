@@ -3,7 +3,7 @@ const { filterStateForUser, assertStateWriteAccess, mergeStateForUser } = requir
 
 const state = {
   users: [
-    { id: "u-sales", name: "销售", department: "业务部", role: "sales", status: "启用", scope: "本人" },
+    { id: "u-sales", name: "销售", department: "业务部", role: "sales", status: "启用", scope: "本人", modulePermissions: { dashboard: ["view"], leads: ["view", "create", "edit"] } },
     { id: "u-other", name: "其他销售", department: "业务部", role: "sales", status: "启用", scope: "本人" },
   ],
   leads: [
@@ -19,6 +19,8 @@ const filtered = filterStateForUser(state, user);
 assert.deepStrictEqual(filtered.leads.map((item) => item.id), ["lead-own"]);
 assert.deepStrictEqual(filtered.purchases, []);
 assert.deepStrictEqual(filtered.inventory, []);
+assert.deepStrictEqual(filtered.users.find((item) => item.id === "u-sales")?.modulePermissions, state.users[0].modulePermissions);
+assert.strictEqual(filtered.users.find((item) => item.id === "u-other")?.modulePermissions, undefined);
 
 const permitted = structuredClone(filtered);
 permitted.leads.push({ id: "lead-new", owner: "u-sales", createdBy: "u-sales", customer: "新客户" });
