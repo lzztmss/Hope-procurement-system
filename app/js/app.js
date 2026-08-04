@@ -1,4 +1,5 @@
 import { workflowActionRoles, workflowActions } from "./workflow-config.js";
+import { getCurrentUser, login, logout } from "./api-client.js";
 
 const APP_KEY = "xlx_ops_mvp_v1";
 const SESSION_KEY = "xlx_ops_session_v1";
@@ -1296,17 +1297,11 @@ function renderLogin() {
     const phone = document.getElementById("loginUser").value.trim();
     const password = document.getElementById("loginPassword").value.trim();
     if (PUBLIC_PRODUCTION && SERVER_MODE) {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ account: phone, password }),
-      });
+      const { response, payload } = await login(phone, password);
       if (!response.ok) {
         toast("账号或密码错误，或账号已禁用");
         return;
       }
-      const payload = await response.json();
       state.serverUser = payload.user;
       db = await loadData();
       state.route = roles[payload.user.role].modules[0] || "dashboard";
@@ -1382,7 +1377,7 @@ function bindGlobalActions() {
   });
   document.querySelector('[data-action="logout"]')?.addEventListener("click", async () => {
     if (PUBLIC_PRODUCTION && SERVER_MODE) {
-      await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+      await logout().catch(() => {});
       state.serverUser = null;
     }
     localStorage.removeItem(SESSION_KEY);
@@ -3672,9 +3667,8 @@ document.addEventListener("click", (event) => {
 async function restoreServerSession() {
   if (!PUBLIC_PRODUCTION || !SERVER_MODE) return;
   try {
-    const response = await fetch("/api/me", { cache: "no-store", credentials: "same-origin" });
+    const { response, payload } = await getCurrentUser();
     if (response.ok) {
-      const payload = await response.json();
       state.serverUser = payload.user;
     }
   } catch {
