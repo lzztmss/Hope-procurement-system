@@ -7,6 +7,7 @@ function createInventoryRoute({
   adjustInventory,
   adjustInventoryBatch,
   ensureInventory,
+  receivePurchase,
 }) {
   const permittedRoles = new Set(["admin", "warehouse", "purchase", "aftersales"]);
   const ensureRoles = new Set(["admin", "warehouse", "purchase"]);
@@ -63,6 +64,14 @@ function createInventoryRoute({
       }
       const payload = JSON.parse(await readBody(req, maxBodyBytes) || "{}");
       const result = await ensureInventory({ item: payload.item, operatorId: user.id });
+      sendJson(res, 200, { ok: true, ...result });
+      return true;
+    }
+    const receipt = req.url.match(/^\/api\/purchases\/([^/]+)\/receive$/);
+    if (req.method === "POST" && receipt) {
+      const user = await requireUser(req, res);
+      if (!user || !permittedRoles.has(user.role)) return true;
+      const result = await receivePurchase({ purchaseId: decodeURIComponent(receipt[1]), operatorId: user.id });
       sendJson(res, 200, { ok: true, ...result });
       return true;
     }

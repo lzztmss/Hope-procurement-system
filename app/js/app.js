@@ -2983,6 +2983,18 @@ function applyInventoryChange(itemId, action, quantity, remark, sourceId = "", s
 }
 
 async function receivePurchase(purchase) {
+  if (SERVER_MODE) {
+    try {
+      const response = await fetch(`/api/purchases/${encodeURIComponent(purchase.id)}/receive`, { method: "POST", credentials: "same-origin" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(payload.message || payload.error || "采购到货入库失败");
+      db = await loadData();
+      return true;
+    } catch (error) {
+      toast(error.message || "采购到货入库失败，请刷新后重试");
+      return false;
+    }
+  }
   const itemValidation = validateDocumentItems("purchases", purchase);
   if (!itemValidation.ok) {
     toast(`${itemValidation.message}，不能确认到货入库`);
