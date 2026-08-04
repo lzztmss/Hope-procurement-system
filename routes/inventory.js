@@ -12,6 +12,8 @@ function createInventoryRoute({
 }) {
   const permittedRoles = new Set(["admin", "warehouse", "purchase", "aftersales"]);
   const ensureRoles = new Set(["admin", "warehouse", "purchase"]);
+  const receiveRoles = new Set(["admin", "warehouse", "purchase"]);
+  const outboundRoles = new Set(["admin", "warehouse", "purchase"]);
 
   function canAdjust(user, res) {
     if (permittedRoles.has(user.role)) return true;
@@ -71,7 +73,11 @@ function createInventoryRoute({
     const receipt = req.url.match(/^\/api\/purchases\/([^/]+)\/receive$/);
     if (req.method === "POST" && receipt) {
       const user = await requireUser(req, res);
-      if (!user || !permittedRoles.has(user.role)) return true;
+      if (!user) return true;
+      if (!receiveRoles.has(user.role)) {
+        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能确认采购到货" });
+        return true;
+      }
       const result = await receivePurchase({ purchaseId: decodeURIComponent(receipt[1]), operatorId: user.id });
       sendJson(res, 200, { ok: true, ...result });
       return true;
@@ -79,7 +85,11 @@ function createInventoryRoute({
     const outbound = req.url.match(/^\/api\/deliveries\/([^/]+)\/outbound$/);
     if (req.method === "POST" && outbound) {
       const user = await requireUser(req, res);
-      if (!user || !permittedRoles.has(user.role)) return true;
+      if (!user) return true;
+      if (!outboundRoles.has(user.role)) {
+        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能确认出库" });
+        return true;
+      }
       const result = await confirmDeliveryOutbound({ deliveryId: decodeURIComponent(outbound[1]), operatorId: user.id });
       sendJson(res, 200, { ok: true, ...result });
       return true;
