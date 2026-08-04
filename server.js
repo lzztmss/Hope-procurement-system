@@ -211,7 +211,7 @@ function serveStatic(req, res) {
 async function handleApi(req, res) {
   try {
     if (req.method === "GET" && req.url === "/api/health") {
-      sendJson(res, 200, { ok: true, name: "心连心智能养老业务运营系统", mode: "production", time: new Date().toISOString() });
+      sendJson(res, 200, { ok: true, name: "心连心智能养老业务运营系统", mode: process.env.APP_MODE || "refactor-test", time: new Date().toISOString() });
       return;
     }
     if (await authRoute.handle(req, res)) return;
@@ -240,7 +240,7 @@ async function start() {
     serveStatic(req, res);
   });
   server.listen(PORT, HOST, () => {
-    console.log("心连心智能养老业务运营系统生产服务已启动");
+    console.log("心连心智能养老业务运营系统重构测试服务已启动");
     console.log(`Node 内部监听: http://${HOST}:${PORT}/`);
     console.log("公网访问请通过 Nginx HTTPS 反向代理");
   });
