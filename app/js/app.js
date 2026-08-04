@@ -1822,8 +1822,13 @@ function renderActions(moduleId, record) {
     if (record.status === "待库存确认" && canWorkflow("inventory_check")) {
       buttons.push(`<button class="primary-btn" data-check-order="${record.id}">重新核验库存</button>`);
     }
-    if (record.status === "待出库" && canWorkflow("delivery_create")) {
-      buttons.push(`<button class="primary-btn" data-create-delivery="${record.id}">生成出库单</button>`);
+    if (record.status === "待出库") {
+      const delivery = activeDeliveryForSalesOrder(record.id, record.deliveryId);
+      if (delivery) {
+        buttons.push(`<button class="ghost-btn" data-module="deliveries" data-view="${delivery.id}">查看出库单</button>`);
+      } else if (canWorkflow("delivery_create")) {
+        buttons.push(`<button class="primary-btn" data-create-delivery="${record.id}">生成出库单</button>`);
+      }
     }
   }
   if (moduleId === "aftersales") {
@@ -3318,16 +3323,18 @@ function createDeliveryFromSalesOrder(orderId) {
     toast("你没有生成出库单的权限，请联系仓库或管理员");
     return;
   }
+  const existing = activeDeliveryForSalesOrder(order.id, order.deliveryId);
+  if (existing) {
+    order.deliveryId = existing.id;
+    toast(`该订单已有出库单 ${existing.code}，请从“查看出库单”进入处理`);
+    render();
+    return;
+  }
   const itemValidation = validateDocumentItems("salesOrders", order);
   if (!itemValidation.ok) return toast(itemValidation.message);
   const inventoryCheck = orderInventoryCheck(order);
   if (!inventoryCheck.ready) {
     toast(`仍有 ${inventoryCheck.shortages.length} 项产品库存不足，暂不能出库；本订单必须全部货齐后一次性发货。`);
-    return;
-  }
-  const existing = db.deliveries.find((delivery) => delivery.sourceSalesOrderId === order.id && !["异常", "已取消"].includes(delivery.status));
-  if (existing) {
-    toast(`该订单已有出库单 ${existing.code}`);
     return;
   }
   const delivery = getDefaultRecord("deliveries");
@@ -3351,6 +3358,12 @@ function createDeliveryFromSalesOrder(orderId) {
   saveData();
   toast(`已生成出库单 ${delivery.code}`);
   render();
+}
+
+function activeDeliveryForSalesOrder(orderId, deliveryId = "") {
+  const byId = deliveryId ? db.deliveries.find((delivery) => delivery.id === deliveryId) : null;
+  if (byId && !["异常", "已取消"].includes(byId.status)) return byId;
+  return db.deliveries.find((delivery) => delivery.sourceSalesOrderId === orderId && !["异常", "已取消"].includes(delivery.status)) || null;
 }
 
 async function confirmDeliveryOutbound(deliveryId) {
