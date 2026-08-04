@@ -759,6 +759,12 @@ td {
   background: #fff;
 }
 
+.product-cell {
+  min-width: 250px;
+  white-space: normal;
+  word-break: break-word;
+}
+
 tbody tr:nth-child(even) td {
   background: #f9fcff;
 }

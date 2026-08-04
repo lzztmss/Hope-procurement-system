@@ -496,6 +496,30 @@ function syncLinkedInventoryIdentities(normalized) {
   return changed;
 }
 
+function syncDocumentItemIdentities(normalized) {
+  let changed = false;
+  const inventoryById = new Map(normalized.inventory.map((item) => [item.id, item]));
+  const productsById = new Map(normalized.products.map((item) => [item.id, item]));
+  ["salesOrders", "purchases", "deliveries"].forEach((collection) => {
+    normalized[collection].forEach((record) => {
+      const items = documentItems(record);
+      items.forEach((item) => {
+        const inventory = inventoryById.get(item.inventoryId);
+        const product = productsById.get(item.productId)
+          || productsById.get(inventory?.productId)
+          || findProductByLabel(normalized.products, item.product || inventory?.name, item.model || inventory?.model);
+        if (!item.productId && (inventory?.productId || product?.id)) { item.productId = inventory?.productId || product.id; changed = true; }
+        if (!item.product && (inventory?.name || product?.name)) { item.product = inventory?.name || product.name; changed = true; }
+        if (!item.model && (inventory?.model || product?.model)) { item.model = inventory?.model || product.model; changed = true; }
+      });
+      const before = JSON.stringify(record.items || []);
+      applyLegacyItemSummary(record);
+      if (before !== JSON.stringify(record.items || [])) changed = true;
+    });
+  });
+  return changed;
+}
+
 function normalizeData(data) {
   const normalized = data || {};
   if (!Array.isArray(normalized.products)) {
@@ -520,6 +544,7 @@ function normalizeData(data) {
     if (nameKey === "name" && normalizedProductName(record[nameKey]) !== normalizedProductName(product.name)) record[nameKey] = product.name;
   };
   normalized.inventory.forEach((item) => normalizeProductReference(item, "name"));
+  syncDocumentItemIdentities(normalized);
   normalized.salesOrders.forEach((order) => {
     normalizeProductReference(order, "product");
     order.totalAmount = Number(order.totalAmount || Number(order.quantity || 0) * Number(order.unitPrice || 0));
@@ -1613,6 +1638,10 @@ function renderModule(moduleId) {
     const needle = state.search.toLowerCase();
     records = records.filter((r) => JSON.stringify(r).toLowerCase().includes(needle) || fields.some(([key]) => String(fieldValue(moduleId, r, key)).toLowerCase().includes(needle)));
   }
+  if (moduleId !== "products" && moduleId !== "inventory") {
+    records = records.slice().sort((left, right) => recordLatestTime(right, moduleId) - recordLatestTime(left, moduleId)
+      || String(right.code || right.id || "").localeCompare(String(left.code || left.id || ""), "zh-CN"));
+  }
   if (moduleId === "products") {
     records = records.slice().sort((left, right) => recordSortOrder(left.sortOrder) - recordSortOrder(right.sortOrder)
       || String(left.name || "").localeCompare(String(right.name || ""), "zh-CN")
@@ -1711,6 +1740,25 @@ function recordSortOrder(value) {
   return value === "" || value === null || value === undefined || !Number.isFinite(number) ? Number.MAX_SAFE_INTEGER : number;
 }
 
+function recordLatestTime(record, moduleId) {
+  const dateFields = {
+    leads: ["updatedAt", "createdAt", "receivedAt", "dueDate"],
+    salesOrders: ["updatedAt", "createdAt", "deliveryDate"],
+    purchases: ["updatedAt", "createdAt", "submittedAt", "requiredDate"],
+    deliveries: ["updatedAt", "createdAt", "date"],
+    trainings: ["updatedAt", "createdAt", "trainingAt"],
+    aftersales: ["updatedAt", "createdAt", "date", "promiseAt"],
+    notices: ["updatedAt", "createdAt", "date", "dueDate"],
+  }[moduleId] || ["updatedAt", "createdAt", "date"];
+  for (const field of dateFields) {
+    const value = record?.[field];
+    if (!value) continue;
+    const time = Date.parse(value);
+    if (Number.isFinite(time)) return time;
+  }
+  return 0;
+}
+
 function inventoryGroupSortOrder(items) {
   return Math.min(...items.map((item) => {
     const product = productById(item.productId) || findProductByLabel(db.products, item.name, item.model);
@@ -1732,7 +1780,9 @@ function renderCell(moduleId, record, key) {
   if (key === "available" && Number(raw) < Number(record.safeStock || 0)) {
     return `<td${cellClass}><span class="status warn">${escapeHtml(raw)}</span></td>`;
   }
-  return `<td${cellClass}>${escapeHtml(formatDate(raw))}</td>`;
+  const value = escapeHtml(formatDate(raw));
+  if (key === "product") return `<td class="${[...cellClasses, "product-cell"].join(" ")}" title="${value}">${value}</td>`;
+  return `<td${cellClass}>${value}</td>`;
 }
 
 function renderCards(moduleId, records) {
