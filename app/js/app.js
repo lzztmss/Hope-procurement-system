@@ -704,7 +704,7 @@ function saveData() {
       } else if (response.status === 409) {
         toast("数据已在其他页面更新。请刷新页面后再继续操作。");
       } else if (!response.ok) {
-        toast("保存被服务器拒绝：货号或删除操作需要系统管理员权限");
+        toast(`保存失败：${result.message || result.error || "服务器拒绝了本次修改"}`);
       }
     }).catch(() => toast("服务器保存失败，请检查网络或联系管理员"));
   }

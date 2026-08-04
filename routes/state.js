@@ -17,7 +17,12 @@ function createStateRoute({ readBody, maxBodyBytes, sendJson, requireUser, readS
       sendJson(res, 409, { ok: false, error: "DATA_OUTDATED", message: "数据已在其他页面更新，请刷新后再操作。", revision: currentRevision });
       return true;
     }
-    assertSensitiveStateWrite(user, currentState, payload);
+    try {
+      assertSensitiveStateWrite(user, currentState, payload);
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: "STATE_VALIDATION", message: error.message });
+      return true;
+    }
     payload.meta = { ...(payload.meta || {}), revision: currentRevision + 1 };
     delete payload.meta.forceDelete;
     const saved = await writeState(payload);
