@@ -7,6 +7,7 @@ const { sendJson, sendText, readBody, parseCookies } = require("./lib/http");
 const { listInventory } = require("./lib/inventory-repository");
 const { listDocuments } = require("./lib/document-repository");
 const { createAuthRoute } = require("./routes/auth");
+const { createInventoryRoute } = require("./routes/inventory");
 const {
   initializeDatabase,
   readState,
@@ -149,6 +150,17 @@ async function requireUser(req, res) {
   return user;
 }
 
+const inventoryRoute = createInventoryRoute({
+  readBody,
+  maxBodyBytes: MAX_BODY_BYTES,
+  sendJson,
+  requireUser,
+  listInventory,
+  adjustInventory,
+  adjustInventoryBatch,
+  ensureInventory,
+});
+
 function safeStaticPath(urlPath) {
   let decoded = decodeURIComponent(urlPath.split("?")[0]);
   if (decoded === "/") decoded = "/index.html";
@@ -196,63 +208,13 @@ async function handleApi(req, res) {
       return;
     }
     if (await authRoute.handle(req, res)) return;
-    if (req.method === "GET" && req.url === "/api/inventory") {
-      const user = await requireUser(req, res);
-      if (!user) return;
-      sendJson(res, 200, { ok: true, inventory: await listInventory() });
-      return;
-    }
+    if (await inventoryRoute.handle(req, res)) return;
     const documentRoute = req.url.match(/^\/api\/(salesOrders|purchases|deliveries|trainings|aftersales|leads)$/);
     if (req.method === "GET" && documentRoute) {
       const user = await requireUser(req, res);
       if (!user) return;
       const kind = documentRoute[1];
       sendJson(res, 200, { ok: true, [kind]: await listDocuments(kind) });
-      return;
-    }
-    const inventoryAdjustment = req.url.match(/^\/api\/inventory\/([^/]+)\/adjust$/);
-    if (req.method === "POST" && inventoryAdjustment) {
-      const user = await requireUser(req, res);
-      if (!user) return;
-      if (!["admin", "warehouse", "purchase", "aftersales"].includes(user.role)) {
-        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能执行库存变动" });
-        return;
-      }
-      const payload = JSON.parse(await readBody(req, MAX_BODY_BYTES) || "{}");
-      const result = await adjustInventory({
-        inventoryId: decodeURIComponent(inventoryAdjustment[1]),
-        delta: payload.delta,
-        action: payload.action,
-        operatorId: user.id,
-        sourceId: payload.sourceId,
-        sourceModule: payload.sourceModule,
-        remark: payload.remark,
-      });
-      sendJson(res, 200, { ok: true, ...result });
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/inventory/adjustments") {
-      const user = await requireUser(req, res);
-      if (!user) return;
-      if (!["admin", "warehouse", "purchase", "aftersales"].includes(user.role)) {
-        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能执行库存变动" });
-        return;
-      }
-      const payload = JSON.parse(await readBody(req, MAX_BODY_BYTES) || "{}");
-      const batch = await adjustInventoryBatch({ adjustments: payload.adjustments, operatorId: user.id, sourceId: payload.sourceId, sourceModule: payload.sourceModule });
-      sendJson(res, 200, { ok: true, ...batch });
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/inventory/ensure") {
-      const user = await requireUser(req, res);
-      if (!user) return;
-      if (!["admin", "warehouse", "purchase"].includes(user.role)) {
-        sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能建立库存记录" });
-        return;
-      }
-      const payload = JSON.parse(await readBody(req, MAX_BODY_BYTES) || "{}");
-      const result = await ensureInventory({ item: payload.item, operatorId: user.id });
-      sendJson(res, 200, { ok: true, ...result });
       return;
     }
     if (req.method === "GET" && req.url === "/api/db") {
