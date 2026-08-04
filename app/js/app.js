@@ -291,7 +291,7 @@ const tableColumns = {
   salesOrders: ["code", "customer", "product", "model", "quantity", "totalAmount", "deliveryDate", "owner", "status"],
   purchases: ["code", "type", "product", "model", "quantity", "supplierId", "lockedDate", "owner", "status"],
   inventory: ["sku", "model", "stock", "locked", "available", "safeStock", "inTransit", "statusText"],
-  deliveries: ["code", "project", "type", "inventoryId", "quantity", "owner", "status"],
+  deliveries: ["code", "project", "type", "deliveryProduct", "model", "quantity", "owner", "status"],
   trainings: ["code", "customer", "product", "model", "quantity", "trainer", "trainingAt", "acceptanceResult", "status"],
   aftersales: ["code", "customer", "product", "model", "type", "priority", "owner", "promiseAt", "status"],
   products: ["sku", "name", "category", "model", "unit", "safeStock", "supplierId", "status"],
@@ -307,6 +307,7 @@ const columnLabels = {
   deliveryId: "出库单",
   customer: "客户",
   product: "产品",
+  deliveryProduct: "产品",
   quantity: "数量",
   stage: "阶段",
   owner: "负责人",
@@ -1241,6 +1242,7 @@ function fieldValue(moduleId, record, key) {
   if (["owner", "requester", "publisher", "techOwner"].includes(key)) return userName(record[key]);
   if (key === "supplierId") return supplierName(record[key]);
   if (key === "inventoryId") return inventoryName(record[key]);
+  if (key === "deliveryProduct") return db.inventory.find((item) => item.id === record.inventoryId)?.name || record.product || "-";
   if (key === "leadId") return db.leads.find((lead) => lead.id === record[key])?.code || "-";
   if (key === "salesOrderId") return db.salesOrders.find((order) => order.id === record[key])?.code || "-";
   if (key === "deliveryId") return db.deliveries.find((delivery) => delivery.id === record[key])?.code || "-";
@@ -1974,7 +1976,7 @@ function renderModal(moduleId, record, isEdit) {
     : `${isEdit ? "编辑" : "新增"}${module.name}`;
   const title = state.editing?.title || defaultTitle;
   return `<div class="modal-backdrop">
-    <form class="modal" id="recordForm" autocomplete="off">
+    <form class="modal" id="recordForm" autocomplete="off" aria-autocomplete="none">
       <div class="modal-header">
         <div><h2 class="panel-title">${title}</h2><p class="compact-note">${state.editing?.purchaseApprovalId ? "请核对采购数量、供应商和预计到货日期；确认后会自动增加库存台账的在途数量。" : "关键字段会进入看板、预警和权限数据范围。"}</p></div>
         <button class="icon-btn" type="button" data-close-modal>×</button>
@@ -2006,17 +2008,17 @@ function renderDocumentItemEditor(moduleId, record) {
 function renderDocumentItemRow(moduleId, item, productNames = productOptions()) {
   if (moduleId === "deliveries") {
     return `<div class="document-item-row delivery-item-row" data-document-item>
-      <label>产品/规格<select data-item-inventory required><option value="">请选择库存产品</option>${db.inventory.map((inventory) => `<option value="${inventory.id}" ${item.inventoryId === inventory.id ? "selected" : ""}>${escapeHtml(inventoryLabel(inventory))}</option>`).join("")}</select></label>
-      <label>数量<input data-item-quantity type="number" min="1" step="any" required value="${escapeHtml(item.quantity)}" /></label>
+      <label>产品/规格<select data-item-inventory required autocomplete="off"><option value="">请选择库存产品</option>${db.inventory.map((inventory) => `<option value="${inventory.id}" ${item.inventoryId === inventory.id ? "selected" : ""}>${escapeHtml(inventoryLabel(inventory))}</option>`).join("")}</select></label>
+      <label>数量<input data-item-quantity type="number" min="1" step="any" required autocomplete="off" value="${escapeHtml(item.quantity)}" /></label>
       <button type="button" class="icon-btn document-item-remove" data-remove-document-item aria-label="删除此产品">×</button>
     </div>`;
   }
   const models = productModelsForName(item.product, item.model);
   return `<div class="document-item-row ${moduleId === "salesOrders" ? "sales-item-row" : "purchase-item-row"}" data-document-item>
-    <label>产品<select data-item-product required><option value="">请选择产品</option>${productNames.map((name) => `<option value="${escapeHtml(name)}" ${item.product === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label>
-    <label>型号/规格<select data-item-model required><option value="">请选择型号/规格</option>${models.map((model) => `<option value="${escapeHtml(model)}" ${item.model === model ? "selected" : ""}>${escapeHtml(model)}</option>`).join("")}</select></label>
-    <label>数量<input data-item-quantity type="number" min="1" step="any" required value="${escapeHtml(item.quantity)}" /></label>
-    ${moduleId === "salesOrders" ? `<label>单价<input data-item-unit-price type="number" min="0" step="any" value="${escapeHtml(item.unitPrice)}" /></label>` : ""}
+    <label>产品<select data-item-product required autocomplete="off"><option value="">请选择产品</option>${productNames.map((name) => `<option value="${escapeHtml(name)}" ${item.product === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label>
+    <label>型号/规格<select data-item-model required autocomplete="off"><option value="">请选择型号/规格</option>${models.map((model) => `<option value="${escapeHtml(model)}" ${item.model === model ? "selected" : ""}>${escapeHtml(model)}</option>`).join("")}</select></label>
+    <label>数量<input data-item-quantity type="number" min="1" step="any" required autocomplete="off" value="${escapeHtml(item.quantity)}" /></label>
+    ${moduleId === "salesOrders" ? `<label>单价<input data-item-unit-price type="number" min="0" step="any" autocomplete="off" value="${escapeHtml(item.unitPrice)}" /></label>` : ""}
     <button type="button" class="icon-btn document-item-remove" data-remove-document-item aria-label="删除此产品">×</button>
   </div>`;
 }
@@ -2047,7 +2049,7 @@ function renderField(moduleId, [key, label, type, required, options], record) {
   const requiredAttr = required ? "required" : "";
   // Chromium 对普通 autocomplete="off" 仍可能弹出“保存的信息”。
   // 业务表单不应使用浏览器地址簿；登录页仍单独保留账号密码自动填充。
-  const autofillMode = ["text", "textarea", "number"].includes(type) ? "new-password" : "off";
+  const autofillMode = "off";
   const common = `name="${key}" ${requiredAttr} autocomplete="${autofillMode}" data-form-type="other" data-lpignore="true" data-1p-ignore="true"`;
   const span = ["textarea", "modulepermissions", "workflowactions"].includes(type) ? "span-2" : "";
   let input = "";
