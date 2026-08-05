@@ -165,7 +165,7 @@ const moduleFields = {
     ["name", "产品名称", "product", true],
     ["model", "设备型号/规格", "model", true],
     ["sortOrder", "同类规格排序（数字越小越靠前）", "number", false],
-    ["category", "类别", "select", true, ["手表", "表带/配件", "智能套装", "床垫", "平台服务", "组合方案", "样机", "其他"]],
+    ["category", "类别", "category", true, ["手表", "表带/配件", "智能套装", "床垫", "平台服务", "组合方案", "样机", "其他"]],
     ["safeStock", "安全库存", "number", true],
     ["stock", "当前库存", "number", true],
     ["locked", "已锁定", "number", true],
@@ -179,7 +179,7 @@ const moduleFields = {
   products: [
     ["sku", "SKU/货号（首次可修改）", "productsku", true],
     ["name", "产品名称（可选已有或输入新名称）", "productname", true],
-    ["category", "类别", "select", true, ["手表", "表带/配件", "智能套装", "床垫", "样机", "平台服务", "组合方案", "其他"]],
+    ["category", "类别", "category", true, ["手表", "表带/配件", "床垫", "样机", "平台服务", "组合方案", "其他"]],
     ["model", "设备型号/规格", "text", true],
     ["sortOrder", "库存大类排序（未填时取规格最小排序）", "number", false],
     ["unit", "单位", "text", false],
@@ -2058,7 +2058,11 @@ function renderField(moduleId, [key, label, type, required, options], record) {
   const common = `name="${key}" ${requiredAttr} autocomplete="${autofillMode}" data-form-type="other" data-lpignore="true" data-1p-ignore="true"`;
   const span = ["textarea", "modulepermissions", "workflowactions"].includes(type) ? "span-2" : "";
   let input = "";
-  if (type === "select" && key === "status" && ["salesOrders", "purchases", "deliveries"].includes(moduleId)) {
+  if (type === "category") {
+    const categories = Array.from(new Set([...(options || []), ...(db.products || []).map((item) => item.category), ...(db.inventory || []).map((item) => item.category)]
+      .map((item) => String(item || "").trim()).filter(Boolean)));
+    input = `<input ${common} type="text" list="category-options" value="${escapeHtml(value)}" placeholder="选择已有类别或直接输入新类别" /><datalist id="category-options">${categories.map((category) => `<option value="${escapeHtml(category)}"></option>`).join("")}</datalist><small class="field-hint">可直接输入新类别；保存后会成为下次可选项。</small>`;
+  } else if (type === "select" && key === "status" && ["salesOrders", "purchases", "deliveries"].includes(moduleId)) {
     input = `<input type="hidden" name="${key}" value="${escapeHtml(value)}" /><div class="field-readonly"><span class="status ${statusClass(value)}">${escapeHtml(value || "-")}</span><small>状态由流程按钮自动推进</small></div>`;
   } else if (type === "select") {
     const allowedOptions = key === "status" ? allowedWorkflowStatusOptions(moduleId, value, options) : options;
@@ -2453,7 +2457,7 @@ function bindInventoryProductAutofill() {
       sku.dataset.autoValue = product.sku;
     }
     if (model) model.value = product.model || "";
-    if (category && Array.from(category.options).some((option) => option.value === product.category)) category.value = product.category;
+    if (category) category.value = product.category || "";
     if (safeStock) safeStock.value = String(Number(product.safeStock || 0));
   };
 
@@ -2474,7 +2478,7 @@ function bindProductDictionaryAutofill() {
     const unit = form.elements.namedItem("unit");
     const safeStock = form.elements.namedItem("safeStock");
     const supplier = form.elements.namedItem("supplierId");
-    if (category && Array.from(category.options).some((option) => option.value === existing.category)) category.value = existing.category;
+    if (category) category.value = existing.category || "";
     if (unit) unit.value = existing.unit || "";
     if (safeStock) safeStock.value = String(Number(existing.safeStock || 0));
     if (supplier && Array.from(supplier.options).some((option) => option.value === existing.supplierId)) supplier.value = existing.supplierId || "";
