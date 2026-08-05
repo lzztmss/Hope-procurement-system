@@ -429,6 +429,73 @@ const skuCategoryPrefixes = {
 
 const DEFAULT_PRODUCT_CATEGORIES = ["手表", "表带/配件", "智能套装", "床垫", "平台服务", "组合方案", "样机", "其他"];
 
+const DEFAULT_SYSTEM_DICTIONARIES = {
+  departments: ["管理层", "业务部", "采购部", "技术部", "仓库/行政", "售后部", "财务部"],
+  productUnits: ["个", "台", "套", "只", "条", "张", "件", "盒", "项"],
+  storageLocations: [],
+  leadSources: ["电话咨询", "销售跟进", "老板转介", "合作伙伴", "老客户", "展会/活动", "其他"],
+  projectTypes: ["投标", "直采", "送样", "零售", "合作洽谈", "售后带单"],
+  purchaseTypes: ["大宗采购", "项目采购", "临时采购", "补库采购", "售后换货"],
+  paymentMethods: ["公对公", "个人垫付报销", "月结", "预付", "货到付款"],
+  invoiceMethods: ["专票", "普票", "不开票", "待确认"],
+  deliveryTypes: ["送样", "销售交付", "老板赠送", "售后换货", "培训演示", "其他"],
+  shippingMethods: ["快递", "自送", "客户自提", "上门安装", "其他"],
+  aftersalesTypes: ["咨询", "故障", "换货", "退货", "配置", "平台", "物流", "其他"],
+  priorities: ["紧急", "高", "中", "低"],
+};
+
+const dictionaryDefinitions = {
+  departments: { label: "部门", hint: "员工归属部门；删除前必须没有员工使用。" },
+  productUnits: { label: "产品单位", hint: "产品和库存使用的计量单位。" },
+  storageLocations: { label: "仓库/存放位置", hint: "库存物料的存放位置。" },
+  leadSources: { label: "线索来源", hint: "线索登记时的来源选项。" },
+  projectTypes: { label: "项目类型", hint: "线索和项目的业务类型。" },
+  purchaseTypes: { label: "采购类型", hint: "采购需求的类型选项。" },
+  paymentMethods: { label: "付款方式", hint: "采购需求和供应商共用的付款方式。" },
+  invoiceMethods: { label: "开票方式", hint: "供应商资料的开票方式。" },
+  deliveryTypes: { label: "出库类型", hint: "出库交付单的类型选项。" },
+  shippingMethods: { label: "发货方式", hint: "送样和出库交付共用的发货方式。" },
+  aftersalesTypes: { label: "售后问题类型", hint: "售后工单的问题类型。" },
+  priorities: { label: "紧急程度", hint: "售后工单的优先级。" },
+};
+
+const dictionaryFieldMap = {
+  "users.department": "departments",
+  "products.unit": "productUnits",
+  "inventory.location": "storageLocations",
+  "leads.source": "leadSources",
+  "leads.projectType": "projectTypes",
+  "leads.deliveryMethod": "shippingMethods",
+  "purchases.type": "purchaseTypes",
+  "purchases.payment": "paymentMethods",
+  "suppliers.payment": "paymentMethods",
+  "suppliers.invoice": "invoiceMethods",
+  "deliveries.type": "deliveryTypes",
+  "deliveries.shipMethod": "shippingMethods",
+  "aftersales.type": "aftersalesTypes",
+  "aftersales.priority": "priorities",
+};
+
+function dictionaryKeyForField(moduleId, fieldKey) {
+  return dictionaryFieldMap[`${moduleId}.${fieldKey}`] || "";
+}
+
+function dictionaryValues(key) {
+  const values = db?.systemDictionaries?.[key];
+  return Array.from(new Set((Array.isArray(values) ? values : DEFAULT_SYSTEM_DICTIONARIES[key] || [])
+    .map((item) => String(item || "").trim()).filter(Boolean)));
+}
+
+function ensureDictionaryValue(key, value) {
+  const text = String(value || "").trim();
+  if (!text || !dictionaryDefinitions[key]) return false;
+  if (!db.systemDictionaries || typeof db.systemDictionaries !== "object") db.systemDictionaries = {};
+  if (!Array.isArray(db.systemDictionaries[key])) db.systemDictionaries[key] = [...(DEFAULT_SYSTEM_DICTIONARIES[key] || [])];
+  if (db.systemDictionaries[key].includes(text)) return false;
+  db.systemDictionaries[key].push(text);
+  return true;
+}
+
 function productCategoryList() {
   return Array.from(new Set((db?.productCategories || []).map((item) => String(item || "").trim()).filter(Boolean)));
 }
@@ -550,6 +617,16 @@ function normalizeData(data) {
     const category = String(item?.category || "").trim();
     if (category && !normalized.productCategories.includes(category)) normalized.productCategories.push(category);
   });
+  if (!normalized.systemDictionaries || typeof normalized.systemDictionaries !== "object" || Array.isArray(normalized.systemDictionaries)) {
+    normalized.systemDictionaries = {};
+  }
+  Object.entries(DEFAULT_SYSTEM_DICTIONARIES).forEach(([key, defaults]) => {
+    const configured = Array.isArray(normalized.systemDictionaries[key]) ? normalized.systemDictionaries[key] : defaults;
+    normalized.systemDictionaries[key] = Array.from(new Set(configured.map((item) => String(item || "").trim()).filter(Boolean)));
+  });
+  (normalized.users || []).forEach((item) => ensureDictionaryValueForData(normalized, "departments", item.department));
+  (normalized.products || []).forEach((item) => ensureDictionaryValueForData(normalized, "productUnits", item.unit));
+  (normalized.inventory || []).forEach((item) => ensureDictionaryValueForData(normalized, "storageLocations", item.location));
   ["salesOrders", "purchases", "deliveries"].forEach((collection) => {
     normalized[collection].forEach((record) => applyLegacyItemSummary(record));
   });
@@ -621,6 +698,13 @@ function normalizeData(data) {
   normalized.meta.inventoryIdentitySynced = Boolean(normalized.meta.inventoryIdentitySynced || inventoryIdentitySynced);
   normalized.meta.version = Math.max(Number(normalized.meta.version || 1), 2);
   return normalized;
+}
+
+function ensureDictionaryValueForData(data, key, value) {
+  const text = String(value || "").trim();
+  if (!text || !data.systemDictionaries || !dictionaryDefinitions[key]) return;
+  if (!Array.isArray(data.systemDictionaries[key])) data.systemDictionaries[key] = [...(DEFAULT_SYSTEM_DICTIONARIES[key] || [])];
+  if (!data.systemDictionaries[key].includes(text)) data.systemDictionaries[key].push(text);
 }
 
 function normalizedProductName(value) {
@@ -1443,6 +1527,7 @@ function bindGlobalActions() {
   });
   document.querySelectorAll("[data-create]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.create)));
   document.querySelector("[data-manage-product-categories]")?.addEventListener("click", openProductCategoryManager);
+  document.querySelectorAll("[data-manage-dictionary]").forEach((button) => button.addEventListener("click", () => openDictionaryManager(button.dataset.manageDictionary)));
   document.querySelectorAll("[data-view]").forEach((btn) => btn.addEventListener("click", () => openDetail(btn.dataset.module, btn.dataset.view)));
   document.querySelectorAll("[data-edit]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.module, btn.dataset.edit)));
   document.querySelectorAll("[data-delete]").forEach((btn) => btn.addEventListener("click", () => removeRecord(btn.dataset.module, btn.dataset.delete)));
@@ -1954,6 +2039,9 @@ function renderUsers() {
 
 function renderSystemSettings() {
   if (!isSuperAdmin()) return `<section class="panel"><p class="empty">只有系统管理员可以进入系统配置。</p></section>`;
+  const dictionaryCards = Object.entries(dictionaryDefinitions).map(([key, definition]) => `
+    <article class="record-card"><h3>${escapeHtml(definition.label)}</h3><p class="compact-note">${escapeHtml(definition.hint)}当前 ${dictionaryValues(key).length} 项。</p><div class="record-actions"><button class="ghost-btn" data-manage-dictionary="${key}">管理</button></div></article>
+  `).join("");
   return `
     <section class="panel">
       <div class="panel-header"><div><h2 class="panel-title">基础资料管理</h2><p class="compact-note">此处维护全系统共用的数据；修改会影响后续表单和筛选项。</p></div></div>
@@ -1965,7 +2053,8 @@ function renderSystemSettings() {
       </div>
     </section>
     <section class="panel">
-      <div class="panel-header"><div><h2 class="panel-title">业务字典（下一步纳入）</h2><p class="compact-note">线索来源、项目类型、付款方式、出库类型、发货方式、售后问题类型、部门和仓库位置目前仍为系统预设值。后续会在这里统一维护，并保护已经被历史单据使用的值。</p></div></div>
+      <div class="panel-header"><div><h2 class="panel-title">业务字典</h2><p class="compact-note">管理员可新增；已经被员工、产品、库存或业务单据使用的选项不能删除，避免历史数据失效。</p></div></div>
+      <div class="record-cards">${dictionaryCards}</div>
     </section>
   `;
 }
@@ -2109,7 +2198,9 @@ function renderField(moduleId, [key, label, type, required, options], record) {
   } else if (type === "select" && key === "status" && ["salesOrders", "purchases", "deliveries"].includes(moduleId)) {
     input = `<input type="hidden" name="${key}" value="${escapeHtml(value)}" /><div class="field-readonly"><span class="status ${statusClass(value)}">${escapeHtml(value || "-")}</span><small>状态由流程按钮自动推进</small></div>`;
   } else if (type === "select") {
-    const allowedOptions = key === "status" ? allowedWorkflowStatusOptions(moduleId, value, options) : options;
+    const dictionaryKey = dictionaryKeyForField(moduleId, key);
+    const configuredOptions = dictionaryKey ? dictionaryValues(dictionaryKey) : options;
+    const allowedOptions = key === "status" ? allowedWorkflowStatusOptions(moduleId, value, configuredOptions) : configuredOptions;
     input = `<select ${common}>${allowedOptions.map((op) => `<option ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
   } else if (type === "product") {
     input = `<select ${common}><option value="">请选择产品</option>${productOptions(value).map((op) => `<option value="${escapeHtml(op)}" ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
@@ -2176,7 +2267,10 @@ function renderField(moduleId, [key, label, type, required, options], record) {
     input = `<textarea ${common}>${escapeHtml(value)}</textarea>`;
   } else {
     const numberRules = type === "number" ? `min="${key === "quantity" ? 1 : 0}" step="any"` : "";
-    input = `<input ${common} type="${type}" ${numberRules} value="${escapeHtml(value)}" />`;
+    const dictionaryKey = type === "text" ? dictionaryKeyForField(moduleId, key) : "";
+    const listId = `${moduleId}-${key}-options`;
+    const suggestions = dictionaryKey ? `<datalist id="${listId}">${dictionaryValues(dictionaryKey).map((item) => `<option value="${escapeHtml(item)}"></option>`).join("")}</datalist>` : "";
+    input = `<input ${common} type="${type}" ${numberRules} ${dictionaryKey ? `list="${listId}"` : ""} value="${escapeHtml(value)}" />${suggestions}`;
   }
   const immediateField = moduleId === "leads" && ["deliveryReceiver", "deliveryAddress", "deliveryMethod", "deliveryId"].includes(key);
   return `<div class="field ${span}${immediateField ? " immediate-delivery-field" : ""}"><label>${label}${required ? " *" : ""}</label>${input}</div>`;
@@ -2564,6 +2658,43 @@ function openProductCategoryManager() {
   }));
 }
 
+function dictionaryUsageCount(key, value) {
+  return Object.entries(dictionaryFieldMap)
+    .filter(([, dictionaryKey]) => dictionaryKey === key)
+    .reduce((total, [path]) => {
+      const [moduleId, field] = path.split(".");
+      return total + (db[collectionFor(moduleId)] || []).filter((record) => String(record?.[field] || "").trim() === value).length;
+    }, 0);
+}
+
+function openDictionaryManager(key) {
+  if (!isSuperAdmin() || !dictionaryDefinitions[key]) return;
+  const definition = dictionaryDefinitions[key];
+  const values = dictionaryValues(key);
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" data-dictionary-manager>
+    <section class="modal">
+      <div class="modal-header"><div><h2 class="panel-title">${escapeHtml(definition.label)}管理</h2><p class="compact-note">${escapeHtml(definition.hint)}已使用的选项不能删除。</p></div><button class="icon-btn" type="button" data-close-dictionary-manager>×</button></div>
+      <form class="modal-body" data-dictionary-create-form autocomplete="off"><div class="form-grid"><div class="field span-2"><label>新增${escapeHtml(definition.label)}</label><div class="inline-form"><input name="value" required autocomplete="off" placeholder="请输入名称" /><button class="primary-btn" type="submit">添加</button></div></div></div></form>
+      <div class="modal-body"><div class="list">${values.map((value) => { const used = dictionaryUsageCount(key, value); return `<div class="list-item"><strong>${escapeHtml(value)}</strong><span class="compact-note">${used ? `已使用 ${used} 次` : "未使用"}</span><button class="danger-btn" type="button" data-delete-dictionary-value="${escapeHtml(value)}" ${used ? "disabled" : ""}>删除</button></div>`; }).join("") || `<p class="empty">暂无选项</p>`}</div></div>
+      <div class="modal-footer"><button class="ghost-btn" type="button" data-close-dictionary-manager>关闭</button></div>
+    </section>
+  </div>`);
+  const close = () => document.querySelector("[data-dictionary-manager]")?.remove();
+  document.querySelectorAll("[data-close-dictionary-manager]").forEach((button) => button.addEventListener("click", close));
+  document.querySelector("[data-dictionary-create-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const value = new FormData(event.currentTarget).get("value");
+    if (!ensureDictionaryValue(key, value)) return toast("选项为空或已存在");
+    saveData(); close(); render(); toast(`${definition.label}已添加`);
+  });
+  document.querySelectorAll("[data-delete-dictionary-value]").forEach((button) => button.addEventListener("click", () => {
+    const value = button.dataset.deleteDictionaryValue;
+    if (dictionaryUsageCount(key, value)) return toast("该选项已经被使用，不能删除");
+    db.systemDictionaries[key] = dictionaryValues(key).filter((item) => item !== value);
+    saveData(); close(); render(); toast(`${definition.label}已删除`);
+  }));
+}
+
 let activeModalDrag = null;
 
 document.addEventListener("pointerdown", (event) => {
@@ -2796,6 +2927,16 @@ function saveRecord(moduleId, id, record) {
       return { ok: false, message: "该产品类别尚未建立，请联系系统管理员在“产品字典 → 类别管理”中添加。" };
     }
     ensureProductCategory(category);
+  }
+  for (const [path, dictionaryKey] of Object.entries(dictionaryFieldMap)) {
+    const [targetModule, field] = path.split(".");
+    if (targetModule !== moduleId) continue;
+    const value = String(record[field] || "").trim();
+    if (!value) continue;
+    if (!dictionaryValues(dictionaryKey).includes(value) && !isSuperAdmin()) {
+      return { ok: false, message: `“${dictionaryDefinitions[dictionaryKey].label}”尚未建立，请联系系统管理员在“系统配置”中添加。` };
+    }
+    ensureDictionaryValue(dictionaryKey, value);
   }
   const oldRecord = id ? { ...(db[collection].find((r) => r.id === id) || {}) } : null;
   const skuChanged = Boolean(oldRecord && ["products", "inventory"].includes(moduleId) && oldRecord.sku !== record.sku);

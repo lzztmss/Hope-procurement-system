@@ -13,6 +13,7 @@ const state = {
   salesOrders: [], purchases: [], inventory: [{ id: "stock-1", stock: 10 }], deliveries: [],
   trainings: [], aftersales: [], products: [{ id: "product-1", sku: "SKU-1" }], suppliers: [], notices: [], inventoryLogs: [],
   productCategories: ["手表"],
+  systemDictionaries: { departments: ["业务部"] },
 };
 const user = state.users[0];
 const filtered = filterStateForUser(state, user);
@@ -37,5 +38,9 @@ assert.throws(() => assertStateWriteAccess(user, state, forbidden), /无权在�
 const categoryForbidden = structuredClone(filtered);
 categoryForbidden.productCategories.push("血压计");
 assert.throws(() => assertStateWriteAccess(user, state, categoryForbidden), /只有系统管理员可以维护产品类别/);
+
+const configurationForbidden = structuredClone(filtered);
+configurationForbidden.systemDictionaries.departments.push("新部门");
+assert.throws(() => assertStateWriteAccess(user, state, configurationForbidden), /只有系统管理员可以维护系统配置/);
 
 console.log("访问控制检查通过：读取裁剪、本人新建、不可见数据保留、类别维护和越权写入拦截均正常");
