@@ -26,10 +26,16 @@ function createStateRoute({ readBody, maxBodyBytes, sendJson, requireUser, readS
       assertSensitiveStateWrite(user, currentState, merged);
       merged.meta = { ...(merged.meta || {}), revision: currentRevision + 1 };
       delete merged.meta.forceDelete;
-      const saved = await writeState(merged);
+      // writeState 在同一数据库事务中用 revision 条件更新，避免两个请求同时
+      // 通过前置检查后发生“后写覆盖前写”。
+      const saved = await writeState(merged, currentRevision);
       sendJson(res, 200, { ok: true, savedAt: new Date().toISOString(), users: saved.users.length, revision: saved.meta?.revision });
       return true;
     } catch (error) {
+      if (error.code === "DATA_OUTDATED") {
+        sendJson(res, 409, { ok: false, error: "DATA_OUTDATED", message: error.message, revision: error.revision });
+        return true;
+      }
       sendJson(res, 400, { ok: false, error: "STATE_VALIDATION", message: error.message });
       return true;
     }
