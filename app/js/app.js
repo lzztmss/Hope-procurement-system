@@ -1932,8 +1932,12 @@ function renderActions(moduleId, record) {
     if (record.status === "草稿" && canWorkflow("sales_submit")) {
       buttons.push(`<button class="primary-btn" data-submit-order="${record.id}">提交审批</button>`);
     }
-    if (record.status === "待销售审批" && canApproveSalesOrder()) {
-      buttons.push(`<button class="primary-btn" data-approve-order="${record.id}">审批通过</button>`);
+    if (record.status === "待销售审批") {
+      if (canApproveSalesOrder()) {
+        buttons.push(`<button class="primary-btn" data-approve-order="${record.id}">审批通过</button>`);
+      } else {
+        buttons.push(`<button class="ghost-btn completed-action" type="button" disabled title="等待系统管理员、公司领导或业务统筹审批">等待审批</button>`);
+      }
     }
     if (record.status === "待库存确认" && canWorkflow("inventory_check")) {
       buttons.push(`<button class="primary-btn" data-check-order="${record.id}">重新核验库存</button>`);
