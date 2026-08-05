@@ -93,7 +93,7 @@ const modules = [
   { id: "trainings", name: "培训验收", icon: "✓", desc: "出库后的客户培训、验收和问题闭环" },
   { id: "aftersales", name: "售后工单", icon: "◇", desc: "故障、换货、配置、平台和客户反馈" },
   { id: "products", name: "产品字典", icon: "◆", desc: "统一维护产品名称、类别、规格、默认供应商和安全库存" },
-  { id: "suppliers", name: "供应商交期", icon: "⌁", desc: "供应商、MOQ、付款、交期和换货周期" },
+  { id: "suppliers", name: "供应商管理", icon: "⌁", desc: "供应商、MOQ、付款、交期和换货周期" },
   { id: "notices", name: "业务通报", icon: "!", desc: "投标、合同、库存、流程变化同步" },
   { id: "users", name: "员工权限", icon: "☷", desc: "员工账号、角色、状态和权限矩阵" },
   { id: "settings", name: "系统配置", icon: "⚙", desc: "维护基础资料与管理员专属配置" },
@@ -1531,6 +1531,7 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-view]").forEach((btn) => btn.addEventListener("click", () => openDetail(btn.dataset.module, btn.dataset.view)));
   document.querySelectorAll("[data-edit]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.module, btn.dataset.edit)));
   document.querySelectorAll("[data-delete]").forEach((btn) => btn.addEventListener("click", () => removeRecord(btn.dataset.module, btn.dataset.delete)));
+  document.querySelectorAll("[data-delete-supplier]").forEach((btn) => btn.addEventListener("click", () => deleteSupplier(btn.dataset.deleteSupplier)));
   document.querySelectorAll("[data-toggle-bulk-delete]").forEach((btn) => btn.addEventListener("click", () => {
     state.bulkDelete = state.bulkDelete.moduleId === btn.dataset.toggleBulkDelete
       ? { moduleId: null, ids: [], mode: null }
@@ -2000,6 +2001,10 @@ function renderActions(moduleId, record) {
     buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-view="${record.id}">查看</button>`);
   }
   if (can(moduleId, "edit") && canEditWorkflowRecord(moduleId, record)) buttons.push(`<button class="ghost-btn" data-module="${moduleId}" data-edit="${record.id}">编辑</button>`);
+  if (moduleId === "suppliers" && isSuperAdmin()) {
+    const reason = supplierDeleteBlockReason(record);
+    buttons.push(`<button class="danger-btn" data-delete-supplier="${record.id}" ${reason ? `disabled title="${escapeHtml(reason)}"` : ""}>删除</button>`);
+  }
   if (can(moduleId, "delete") && ["leads", "salesOrders", "purchases", "deliveries"].includes(moduleId)) {
     const label = moduleId === "leads" ? "关闭线索" : "作废";
     buttons.push(`<button class="danger-btn" data-module="${moduleId}" data-delete="${record.id}">${label}</button>`);
@@ -3095,6 +3100,28 @@ function deleteBlockReason(moduleId, record) {
     if (hasHistory) return "该库存已有出入库或售后记录，不能删除。";
   }
   return "";
+}
+
+function supplierDeleteBlockReason(supplier) {
+  if ((db.products || []).some((item) => item.supplierId === supplier.id)) return "该供应商已被产品字典设为默认供应商，请先修改产品资料或将供应商停用。";
+  if ((db.purchases || []).some((item) => item.supplierId === supplier.id)) return "该供应商已关联采购需求，不能删除；请将合作状态改为暂停或淘汰。";
+  if ((db.aftersales || []).some((item) => item.supplierId === supplier.id)) return "该供应商已关联售后工单，不能删除；请将合作状态改为暂停或淘汰。";
+  return "";
+}
+
+function deleteSupplier(id) {
+  if (!isSuperAdmin()) return;
+  const supplier = (db.suppliers || []).find((item) => item.id === id);
+  if (!supplier) return;
+  const reason = supplierDeleteBlockReason(supplier);
+  if (reason) return toast(reason);
+  confirmAction("删除供应商", `确认删除供应商“${supplier.name}”吗？该供应商尚未关联任何产品、采购或售后单据，删除后不能恢复。`, () => {
+    db.suppliers = db.suppliers.filter((item) => item.id !== id);
+    logAction("delete", "suppliers", id, `管理员删除未关联供应商：${supplier.name}`);
+    saveData();
+    toast("供应商已删除");
+    render();
+  });
 }
 
 function deleteSelectedRecords(moduleId) {
