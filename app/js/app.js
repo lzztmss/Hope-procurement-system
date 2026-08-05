@@ -1533,13 +1533,13 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-delete]").forEach((btn) => btn.addEventListener("click", () => removeRecord(btn.dataset.module, btn.dataset.delete)));
   document.querySelectorAll("[data-delete-supplier]").forEach((btn) => btn.addEventListener("click", () => deleteSupplier(btn.dataset.deleteSupplier)));
   document.querySelectorAll("[data-toggle-bulk-delete]").forEach((btn) => btn.addEventListener("click", () => {
-    state.bulkDelete = state.bulkDelete.moduleId === btn.dataset.toggleBulkDelete
+    state.bulkDelete = state.bulkDelete.moduleId === btn.dataset.toggleBulkDelete && state.bulkDelete.mode === "safe"
       ? { moduleId: null, ids: [], mode: null }
       : { moduleId: btn.dataset.toggleBulkDelete, ids: [], mode: "safe" };
     render();
   }));
   document.querySelectorAll("[data-toggle-force-delete]").forEach((btn) => btn.addEventListener("click", () => {
-    state.bulkDelete = state.bulkDelete.moduleId === btn.dataset.toggleForceDelete
+    state.bulkDelete = state.bulkDelete.moduleId === btn.dataset.toggleForceDelete && state.bulkDelete.mode === "force"
       ? { moduleId: null, ids: [], mode: null }
       : { moduleId: btn.dataset.toggleForceDelete, ids: [], mode: "force" };
     render();
@@ -1760,6 +1760,7 @@ function renderModule(moduleId) {
   }
   const bulkDeleteActive = state.bulkDelete.moduleId === moduleId;
   const canForceDelete = isSuperAdmin();
+  const canSafeDelete = isSuperAdmin() && ["products", "inventory"].includes(moduleId);
   return `
     <section class="panel">
       <div class="panel-header">
@@ -1774,6 +1775,8 @@ function renderModule(moduleId) {
             ${allStatuses.map((s) => `<option ${state.statusFilter === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
           </select>
           ${can(moduleId, "create") ? `<button class="primary-btn" data-create="${moduleId}">${moduleId === "products" ? "新增产品/型号" : "新增"}</button>` : ""}
+          ${canSafeDelete ? `<button class="${bulkDeleteActive && state.bulkDelete.mode === "safe" ? "ghost-btn" : "danger-btn"}" data-toggle-bulk-delete="${moduleId}">${bulkDeleteActive && state.bulkDelete.mode === "safe" ? "取消删除" : "删除"}</button>` : ""}
+          ${bulkDeleteActive && state.bulkDelete.mode === "safe" ? `<button class="danger-btn" data-confirm-bulk-delete="${moduleId}" ${state.bulkDelete.ids.length ? "" : "disabled"}>删除选中（${state.bulkDelete.ids.length}）</button>` : ""}
           ${canForceDelete ? `<button class="${bulkDeleteActive && state.bulkDelete.mode === "force" ? "ghost-btn" : "danger-btn"}" data-toggle-force-delete="${moduleId}">${bulkDeleteActive && state.bulkDelete.mode === "force" ? "取消强制删除" : "强制删除"}</button>` : ""}
           ${bulkDeleteActive && state.bulkDelete.mode === "force" ? `<button class="danger-btn" data-confirm-force-delete="${moduleId}" ${state.bulkDelete.ids.length ? "" : "disabled"}>强制删除选中（${state.bulkDelete.ids.length}）</button>` : ""}
           ${can(moduleId, "export") ? `<button class="ghost-btn" data-export="${moduleId}">导出</button>` : ""}
