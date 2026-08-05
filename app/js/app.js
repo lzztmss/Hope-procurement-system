@@ -1684,7 +1684,7 @@ function renderDashboard() {
           </tbody>
         </table>
       </div>
-      <div class="record-cards">
+      <div class="settings-grid">
         ${projectRows().map((row) => `<article class="record-card"><h3>${escapeHtml(row.project)}</h3><div class="record-meta"><span>线索：${escapeHtml(row.stage)}</span><span>采购：${escapeHtml(row.purchase)}</span><span>交付：${escapeHtml(row.delivery)}</span><span>售后：${escapeHtml(row.after)}</span></div></article>`).join("")}
       </div>
     </section>
@@ -2062,7 +2062,7 @@ function renderSystemSettings() {
     </section>
     <section class="panel">
       <div class="panel-header"><div><h2 class="panel-title">业务字典</h2><p class="compact-note">管理员可新增；已经被员工、产品、库存或业务单据使用的选项不能删除，避免历史数据失效。</p></div></div>
-      <div class="record-cards">${dictionaryCards}</div>
+      <div class="settings-grid">${dictionaryCards}</div>
     </section>
   `;
 }
