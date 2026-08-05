@@ -769,6 +769,27 @@ tbody tr:nth-child(even) td {
   background: #f9fcff;
 }
 
+/* 采购列表字段短、操作按钮多；固定为单行并略收紧行高，避免“项目采购”等文字被逐字拆开。 */
+.purchases-table {
+  min-width: 1160px;
+}
+
+.purchases-table th,
+.purchases-table td {
+  padding: 8px 10px;
+  vertical-align: middle;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.purchases-table th:nth-child(1),
+.purchases-table td:nth-child(1) { min-width: 118px; }
+
+.purchases-table th:nth-child(2),
+.purchases-table td:nth-child(2) { min-width: 76px; }
+
+.purchases-table .product-cell { min-width: 210px; }
+
 .status,
 .badge {
   display: inline-flex;

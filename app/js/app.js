@@ -1821,7 +1821,7 @@ function renderTable(moduleId, records) {
   const columns = tableColumns[moduleId] || [];
   const selectionMode = state.bulkDelete.moduleId === moduleId;
   return `<div class="table-wrap">
-    <table>
+    <table class="data-table ${escapeHtml(moduleId)}-table">
       <thead>
         <tr>${selectionMode ? "<th class=\"select-column\">选择</th>" : ""}${columns.map((key) => `<th>${columnLabels[key] || key}</th>`).join("")}<th>操作</th></tr>
       </thead>
