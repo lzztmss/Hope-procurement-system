@@ -2402,7 +2402,13 @@ function bindModal() {
     }
     if (moduleId === "salesOrders") next.totalAmountManual = Boolean(record.totalAmountManual);
     next.updatedAt = nowIso();
-    const result = purchaseApprovalId ? confirmPurchaseOrder(next, record) : saveRecord(moduleId, id, next);
+    // 转单/建培训单时还要同步关联记录；先把所有关联变化放进同一次保存，
+    // 避免两次并发保存使线索状态被旧数据覆盖。
+    const deferSave = !purchaseApprovalId && (
+      (moduleId === "salesOrders" && Boolean(sourceLeadId || next.leadId))
+      || (moduleId === "trainings" && Boolean(sourceDeliveryId))
+    );
+    const result = purchaseApprovalId ? confirmPurchaseOrder(next, record) : saveRecord(moduleId, id, next, { deferSave });
     if (!result.ok) {
       toast(result.message);
       return;
@@ -2410,7 +2416,6 @@ function bindModal() {
     const linkedLeadId = sourceLeadId || (moduleId === "salesOrders" ? next.leadId : "");
     if (linkedLeadId && moduleId === "salesOrders") {
       syncLeadWithSalesOrder(next);
-      saveData();
     }
     if (sourceDeliveryId && moduleId === "trainings") {
       const delivery = db.deliveries.find((item) => item.id === sourceDeliveryId);
@@ -2419,9 +2424,9 @@ function bindModal() {
         delivery.training = "需要";
         delivery.updatedAt = nowIso();
         logAction("link", "deliveries", delivery.id, `已创建培训验收单 ${next.code}`);
-        saveData();
       }
     }
+    if (deferSave) saveData();
     closeModal();
     const linkedDelivery = moduleId === "leads" && next.deliveryId ? db.deliveries.find((delivery) => delivery.id === next.deliveryId) : null;
     toast(purchaseApprovalId ? `采购单 ${next.code} 已下单，已同步增加库存在途` : (moduleId === "salesOrders" && next.status === "已取消" && linkedLeadId ? `销售订单 ${next.code} 已取消，原线索已恢复跟进` : (sourceLeadId ? `销售订单 ${next.code} 创建成功，原线索已转销售订单` : (sourceDeliveryId ? `培训验收单 ${next.code} 创建成功` : (linkedDelivery ? `线索已保存，送样出库申请 ${linkedDelivery.code} 已推送至出库交付` : (id ? "记录已更新" : "记录已新增"))))));
@@ -2934,7 +2939,7 @@ function createImmediateDeliveryFromLead(lead) {
   return delivery;
 }
 
-function saveRecord(moduleId, id, record) {
+function saveRecord(moduleId, id, record, { deferSave = false } = {}) {
   const documentValidation = validateDocumentItems(moduleId, record);
   if (!documentValidation.ok) return documentValidation;
   const dataValidation = validateRecordData(moduleId, record);
@@ -3027,7 +3032,7 @@ function saveRecord(moduleId, id, record) {
   if (moduleId === "salesOrders" && oldRecord) reconcileSalesOrderWorkflow(record, oldRecord);
   if (moduleId === "purchases" && oldRecord) reconcilePurchaseWorkflow(record, oldRecord);
   if (moduleId === "deliveries" && oldRecord) reconcileDeliveryWorkflow(record, oldRecord);
-  saveData();
+  if (!deferSave) saveData();
   return { ok: true };
 }
 
