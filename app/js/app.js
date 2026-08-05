@@ -426,6 +426,21 @@ const skuCategoryPrefixes = {
   "其他": "ITEM",
 };
 
+const DEFAULT_PRODUCT_CATEGORIES = ["手表", "表带/配件", "智能套装", "床垫", "平台服务", "组合方案", "样机", "其他"];
+
+function productCategoryList() {
+  return Array.from(new Set((db?.productCategories || []).map((item) => String(item || "").trim()).filter(Boolean)));
+}
+
+function ensureProductCategory(category) {
+  const value = String(category || "").trim();
+  if (!value) return false;
+  if (!Array.isArray(db.productCategories)) db.productCategories = [...DEFAULT_PRODUCT_CATEGORIES];
+  if (db.productCategories.includes(value)) return false;
+  db.productCategories.push(value);
+  return true;
+}
+
 function skuVariantToken(model = "") {
   const text = String(model).toUpperCase();
   if (text.includes("4G")) return "4G";
@@ -529,6 +544,11 @@ function normalizeData(data) {
   for (const key of ["users", "suppliers", "inventory", "leads", "salesOrders", "purchases", "deliveries", "trainings", "aftersales", "notices", "inventoryLogs", "auditLogs"]) {
     if (!Array.isArray(normalized[key])) normalized[key] = [];
   }
+  if (!Array.isArray(normalized.productCategories)) normalized.productCategories = [...DEFAULT_PRODUCT_CATEGORIES];
+  [...normalized.products, ...normalized.inventory].forEach((item) => {
+    const category = String(item?.category || "").trim();
+    if (category && !normalized.productCategories.includes(category)) normalized.productCategories.push(category);
+  });
   ["salesOrders", "purchases", "deliveries"].forEach((collection) => {
     normalized[collection].forEach((record) => applyLegacyItemSummary(record));
   });
@@ -1421,6 +1441,7 @@ function bindGlobalActions() {
     render();
   });
   document.querySelectorAll("[data-create]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.create)));
+  document.querySelector("[data-manage-product-categories]")?.addEventListener("click", openProductCategoryManager);
   document.querySelectorAll("[data-view]").forEach((btn) => btn.addEventListener("click", () => openDetail(btn.dataset.module, btn.dataset.view)));
   document.querySelectorAll("[data-edit]").forEach((btn) => btn.addEventListener("click", () => openForm(btn.dataset.module, btn.dataset.edit)));
   document.querySelectorAll("[data-delete]").forEach((btn) => btn.addEventListener("click", () => removeRecord(btn.dataset.module, btn.dataset.delete)));
@@ -1665,6 +1686,7 @@ function renderModule(moduleId) {
             ${allStatuses.map((s) => `<option ${state.statusFilter === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
           </select>
           ${can(moduleId, "create") ? `<button class="primary-btn" data-create="${moduleId}">${moduleId === "products" ? "新增产品/型号" : "新增"}</button>` : ""}
+          ${moduleId === "products" && isSuperAdmin() ? `<button class="ghost-btn" data-manage-product-categories>类别管理</button>` : ""}
           ${canForceDelete ? `<button class="${bulkDeleteActive && state.bulkDelete.mode === "force" ? "ghost-btn" : "danger-btn"}" data-toggle-force-delete="${moduleId}">${bulkDeleteActive && state.bulkDelete.mode === "force" ? "取消强制删除" : "强制删除"}</button>` : ""}
           ${bulkDeleteActive && state.bulkDelete.mode === "force" ? `<button class="danger-btn" data-confirm-force-delete="${moduleId}" ${state.bulkDelete.ids.length ? "" : "disabled"}>强制删除选中（${state.bulkDelete.ids.length}）</button>` : ""}
           ${can(moduleId, "export") ? `<button class="ghost-btn" data-export="${moduleId}">导出</button>` : ""}
@@ -2059,9 +2081,12 @@ function renderField(moduleId, [key, label, type, required, options], record) {
   const span = ["textarea", "modulepermissions", "workflowactions"].includes(type) ? "span-2" : "";
   let input = "";
   if (type === "category") {
-    const categories = Array.from(new Set([...(options || []), ...(db.products || []).map((item) => item.category), ...(db.inventory || []).map((item) => item.category)]
+    const categories = Array.from(new Set([...productCategoryList(), ...(options || []), ...(db.products || []).map((item) => item.category), ...(db.inventory || []).map((item) => item.category)]
       .map((item) => String(item || "").trim()).filter(Boolean)));
-    input = `<input ${common} type="text" list="category-options" value="${escapeHtml(value)}" placeholder="选择已有类别或直接输入新类别" /><datalist id="category-options">${categories.map((category) => `<option value="${escapeHtml(category)}"></option>`).join("")}</datalist><small class="field-hint">可直接输入新类别；保存后会成为下次可选项。</small>`;
+    const categoryHint = isSuperAdmin()
+      ? "可从建议中选择，也可直接输入新类别；新类别会保存到类别管理。"
+      : "请选择已有类别；如需新增类别，请联系系统管理员。";
+    input = `<input ${common} type="text" list="category-options" value="${escapeHtml(value)}" placeholder="${isSuperAdmin() ? "选择已有类别或输入新类别" : "请选择已有类别"}" /><datalist id="category-options">${categories.map((category) => `<option value="${escapeHtml(category)}"></option>`).join("")}</datalist><small class="field-hint">${categoryHint}</small>`;
   } else if (type === "select" && key === "status" && ["salesOrders", "purchases", "deliveries"].includes(moduleId)) {
     input = `<input type="hidden" name="${key}" value="${escapeHtml(value)}" /><div class="field-readonly"><span class="status ${statusClass(value)}">${escapeHtml(value || "-")}</span><small>状态由流程按钮自动推进</small></div>`;
   } else if (type === "select") {
@@ -2490,6 +2515,36 @@ function closeModal() {
   state.editing = null;
 }
 
+function openProductCategoryManager() {
+  if (!isSuperAdmin()) return;
+  const categories = productCategoryList();
+  const usageCount = (category) => [...(db.products || []), ...(db.inventory || [])]
+    .filter((item) => item.category === category).length;
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" data-category-manager>
+    <section class="modal">
+      <div class="modal-header"><div><h2 class="panel-title">产品类别管理</h2><p class="compact-note">管理员可新增类别；已关联产品或库存的类别不能删除。</p></div><button class="icon-btn" type="button" data-close-category-manager>×</button></div>
+      <form class="modal-body" data-category-create-form autocomplete="off"><div class="form-grid"><div class="field span-2"><label>新增类别</label><div class="inline-form"><input name="category" required autocomplete="off" placeholder="例如：血压计" /><button class="primary-btn" type="submit">添加类别</button></div></div></div></form>
+      <div class="modal-body"><div class="list">${categories.map((category) => { const used = usageCount(category); return `<div class="list-item"><strong>${escapeHtml(category)}</strong><span class="compact-note">${used ? `已关联 ${used} 条产品/库存` : "未使用"}</span><button class="danger-btn" type="button" data-delete-product-category="${escapeHtml(category)}" ${used ? "disabled" : ""}>删除</button></div>`; }).join("") || `<p class="empty">暂无类别</p>`}</div></div>
+      <div class="modal-footer"><button class="ghost-btn" type="button" data-close-category-manager>关闭</button></div>
+    </section>
+  </div>`);
+  const close = () => document.querySelector("[data-category-manager]")?.remove();
+  document.querySelectorAll("[data-close-category-manager]").forEach((button) => button.addEventListener("click", close));
+  document.querySelector("[data-category-create-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const category = new FormData(event.currentTarget).get("category");
+    if (!ensureProductCategory(category)) return toast("类别为空或已存在");
+    saveData(); close(); render(); toast("产品类别已添加");
+  });
+  document.querySelectorAll("[data-delete-product-category]").forEach((button) => button.addEventListener("click", () => {
+    const category = button.dataset.deleteProductCategory;
+    const used = [...(db.products || []), ...(db.inventory || [])].some((item) => item.category === category);
+    if (used) return toast("该类别已有关联产品或库存，不能删除");
+    db.productCategories = productCategoryList().filter((item) => item !== category);
+    saveData(); close(); render(); toast("产品类别已删除");
+  }));
+}
+
 let activeModalDrag = null;
 
 document.addEventListener("pointerdown", (event) => {
@@ -2716,6 +2771,13 @@ function saveRecord(moduleId, id, record) {
     }
   }
   const collection = collectionFor(moduleId);
+  if (["products", "inventory"].includes(moduleId)) {
+    const category = String(record.category || "").trim();
+    if (!productCategoryList().includes(category) && !isSuperAdmin()) {
+      return { ok: false, message: "该产品类别尚未建立，请联系系统管理员在“产品字典 → 类别管理”中添加。" };
+    }
+    ensureProductCategory(category);
+  }
   const oldRecord = id ? { ...(db[collection].find((r) => r.id === id) || {}) } : null;
   const skuChanged = Boolean(oldRecord && ["products", "inventory"].includes(moduleId) && oldRecord.sku !== record.sku);
   if (skuChanged && !isSuperAdmin()) {
