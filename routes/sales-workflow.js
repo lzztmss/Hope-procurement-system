@@ -151,7 +151,7 @@ function createSalesWorkflowRoute({ readBody, maxBodyBytes, sendJson, requireUse
         applyLegacyItemSummary(order);
         logAction(state, user.id, "inventory_check", "salesOrders", order.id, "发起采购前复核发现库存已满足，订单转为待出库");
         await saveWorkflow(state, revision);
-        sendJson(res, 200, { ok: true, status: order.status, message: "库存已满足，无需采购，销售订单已进入待出库" });
+        sendJson(res, 200, { ok: true, status: order.status, order, message: "库存已满足，无需采购，销售订单已进入待出库" });
         return true;
       }
       const payload = JSON.parse(await readBody(req, maxBodyBytes) || "{}");
@@ -163,7 +163,7 @@ function createSalesWorkflowRoute({ readBody, maxBodyBytes, sendJson, requireUse
       order.procurementShortages = check.shortages;
       logAction(state, user.id, "purchase_request", "salesOrders", order.id, `已确认缺货并发起采购申请 ${purchase.code}`);
       await saveWorkflow(state, revision);
-      sendJson(res, 200, { ok: true, status: order.status, purchaseId: purchase.id, message: `采购申请 ${purchase.code} 已发给采购部门` });
+      sendJson(res, 200, { ok: true, status: order.status, order, purchaseId: purchase.id, message: `采购申请 ${purchase.code} 已发给采购部门` });
       return true;
     }
     if (action === "approve") {
@@ -189,7 +189,7 @@ function createSalesWorkflowRoute({ readBody, maxBodyBytes, sendJson, requireUse
       applyLegacyItemSummary(order);
       logAction(state, user.id, "inventory_check", "salesOrders", order.id, `订单 ${documentItems(order).length} 项产品库存均充足，可一次性出库`);
       await saveWorkflow(state, revision);
-      sendJson(res, 200, { ok: true, status: order.status, message: "库存充足，销售订单已进入待出库" });
+      sendJson(res, 200, { ok: true, status: order.status, order, message: "库存充足，销售订单已进入待出库" });
       return true;
     }
 
@@ -197,7 +197,7 @@ function createSalesWorkflowRoute({ readBody, maxBodyBytes, sendJson, requireUse
     order.procurementShortages = check.shortages;
     logAction(state, user.id, "inventory_shortage", "salesOrders", order.id, `有 ${check.shortages.length} 项产品库存不足，等待销售确认采购申请`);
     await saveWorkflow(state, revision);
-    sendJson(res, 200, { ok: true, status: order.status, shortages: check.shortages, message: "审批通过，库存不足，请确认后发起采购申请" });
+    sendJson(res, 200, { ok: true, status: order.status, order, shortages: check.shortages, message: "审批通过，库存不足，请确认后发起采购申请" });
     return true;
   }
 

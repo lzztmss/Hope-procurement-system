@@ -407,7 +407,7 @@ function escapeHtml(value) {
 
 function defaultProducts() {
   return [
-    { id: "prod-watch", code: "PROD-WATCH", name: "AI健康手表", category: "手表", model: "4G 养老版", unit: "只", safeStock: 20, supplierId: "s-watch", status: "启用", remark: "手表类主产品" },
+    { id: "prod-watch", code: "PROD-WATCH", name: "AI健康手表4G养老版", category: "手表", model: "黑色", unit: "只", safeStock: 20, supplierId: "s-watch", status: "启用", remark: "手表类主产品" },
     { id: "prod-strap", code: "PROD-STRAP", name: "表带/配件", category: "表带/配件", model: "黑色标准款", unit: "条", safeStock: 60, supplierId: "s-watch", status: "启用", remark: "常用耗材和替换配件" },
     { id: "prod-kit", code: "PROD-KIT", name: "智能养老套装", category: "智能套装", model: "标准套装", unit: "套", safeStock: 8, supplierId: "s-kit", status: "启用", remark: "居家养老项目组合设备" },
     { id: "prod-mattress", code: "PROD-BED", name: "智能床垫", category: "床垫", model: "WIFI 单人 PLUS", unit: "张", safeStock: 2, supplierId: "s-mattress", status: "启用", remark: "项目制采购为主" },
@@ -990,13 +990,14 @@ function productOptions(currentValue = "") {
     const text = String(value ?? "").trim();
     if (text && !options.includes(text)) options.push(text);
   };
+  const inventoryProductIds = new Set((db.inventory || []).map((item) => item.productId).filter(Boolean));
   (db.products || [])
-    .filter((product) => product.status !== "停用")
+    // 销售、采购等业务表单只选择“启用且已有库存档案”的产品。
+    // 单据历史名称不会反向污染下拉；如要销售新产品，管理员先建立产品和库存档案。
+    .filter((product) => product.status !== "停用" && inventoryProductIds.has(product.id))
     .forEach((product) => add(product.name));
-  for (const collection of ["leads", "purchases", "aftersales", "suppliers"]) {
-    (db[collection] || []).forEach((record) => add(record.product));
-  }
-  (db.inventory || []).forEach((item) => add(item.name));
+  // 新建单据只能选择产品字典中启用的产品。历史单据和库存中的旧名称
+  // 只在编辑该条旧记录时通过 currentValue 保留，不能重新被选作新业务产品。
   add(currentValue);
   return options;
 }
@@ -3474,9 +3475,10 @@ async function approveSalesOrder(orderId) {
   if (SERVER_MODE) {
     const { response, payload } = await approveSalesOrderRequest(orderId);
     if (!response.ok) return toast(payload.message || "审批失败，请刷新后重试");
-    db = await loadData();
+    applyWorkflowOrder(payload.order);
     toast(payload.message || "销售订单已审批");
     render();
+    refreshWorkflowData();
     return;
   }
   order.status = "待库存确认";
@@ -3517,11 +3519,28 @@ function openPurchaseRequest(orderId) {
       remark: formData.get("remark"),
     });
     if (!response.ok) return toast(payload.message || "采购申请发送失败，请刷新后重试");
-    db = await loadData();
+    applyWorkflowOrder(payload.order);
     close();
     toast(payload.message || "采购申请已发送给采购部门");
     render();
+    refreshWorkflowData();
   });
+}
+
+// 流程接口已在服务器完成写入。先使用接口回传的最新订单即时重绘，
+// 再静默同步完整数据，避免用户必须刷新页面才能看到下一步操作。
+function applyWorkflowOrder(order) {
+  if (!order?.id || !db?.salesOrders) return;
+  const index = db.salesOrders.findIndex((item) => item.id === order.id);
+  if (index >= 0) db.salesOrders[index] = { ...db.salesOrders[index], ...order };
+}
+
+function refreshWorkflowData() {
+  loadData().then((freshData) => {
+    if (!freshData) return;
+    db = freshData;
+    render();
+  }).catch(() => {});
 }
 
 async function checkSalesOrderInventory(orderId, { automatic = false } = {}) {
@@ -3530,9 +3549,10 @@ async function checkSalesOrderInventory(orderId, { automatic = false } = {}) {
   if (SERVER_MODE) {
     const { response, payload } = await checkSalesOrderInventoryRequest(orderId);
     if (!response.ok) return toast(payload.message || "库存核验失败，请刷新后重试");
-    db = await loadData();
+    applyWorkflowOrder(payload.order);
     toast(payload.message || "库存核验完成");
     render();
+    refreshWorkflowData();
     return;
   }
   const itemValidation = validateDocumentItems("salesOrders", order);

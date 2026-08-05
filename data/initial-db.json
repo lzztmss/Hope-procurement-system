@@ -90,9 +90,9 @@
     {
       "id": "prod-watch",
       "code": "PROD-WATCH",
-      "name": "AI健康手表",
+      "name": "AI健康手表4G养老版",
       "category": "手表",
-      "model": "4G 养老版",
+      "model": "黑色",
       "unit": "只",
       "safeStock": 20,
       "supplierId": "s-watch",
