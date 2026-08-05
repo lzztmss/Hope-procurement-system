@@ -96,6 +96,7 @@ const modules = [
   { id: "suppliers", name: "供应商交期", icon: "⌁", desc: "供应商、MOQ、付款、交期和换货周期" },
   { id: "notices", name: "业务通报", icon: "!", desc: "投标、合同、库存、流程变化同步" },
   { id: "users", name: "员工权限", icon: "☷", desc: "员工账号、角色、状态和权限矩阵" },
+  { id: "settings", name: "系统配置", icon: "⚙", desc: "维护基础资料与管理员专属配置" },
 ];
 
 const moduleFields = {
@@ -1537,6 +1538,7 @@ function bindGlobalActions() {
 function renderRoute() {
   if (state.route === "dashboard") return renderDashboard();
   if (state.route === "users") return renderUsers();
+  if (state.route === "settings") return renderSystemSettings();
   return renderModule(state.route);
 }
 
@@ -1686,7 +1688,6 @@ function renderModule(moduleId) {
             ${allStatuses.map((s) => `<option ${state.statusFilter === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
           </select>
           ${can(moduleId, "create") ? `<button class="primary-btn" data-create="${moduleId}">${moduleId === "products" ? "新增产品/型号" : "新增"}</button>` : ""}
-          ${moduleId === "products" && isSuperAdmin() ? `<button class="ghost-btn" data-manage-product-categories>类别管理</button>` : ""}
           ${canForceDelete ? `<button class="${bulkDeleteActive && state.bulkDelete.mode === "force" ? "ghost-btn" : "danger-btn"}" data-toggle-force-delete="${moduleId}">${bulkDeleteActive && state.bulkDelete.mode === "force" ? "取消强制删除" : "强制删除"}</button>` : ""}
           ${bulkDeleteActive && state.bulkDelete.mode === "force" ? `<button class="danger-btn" data-confirm-force-delete="${moduleId}" ${state.bulkDelete.ids.length ? "" : "disabled"}>强制删除选中（${state.bulkDelete.ids.length}）</button>` : ""}
           ${can(moduleId, "export") ? `<button class="ghost-btn" data-export="${moduleId}">导出</button>` : ""}
@@ -1951,6 +1952,24 @@ function renderUsers() {
     </section>`;
 }
 
+function renderSystemSettings() {
+  if (!isSuperAdmin()) return `<section class="panel"><p class="empty">只有系统管理员可以进入系统配置。</p></section>`;
+  return `
+    <section class="panel">
+      <div class="panel-header"><div><h2 class="panel-title">基础资料管理</h2><p class="compact-note">此处维护全系统共用的数据；修改会影响后续表单和筛选项。</p></div></div>
+      <div class="record-cards">
+        <article class="record-card"><h3>产品类别</h3><p class="compact-note">新增类别、查看使用数量，删除未使用类别。</p><div class="record-actions"><button class="primary-btn" data-manage-product-categories>管理类别</button></div></article>
+        <article class="record-card"><h3>产品与型号</h3><p class="compact-note">维护产品名称、规格、默认供应商、安全库存与启停状态。</p><div class="record-actions"><button class="ghost-btn" data-route="products">进入产品字典</button></div></article>
+        <article class="record-card"><h3>供应商资料</h3><p class="compact-note">维护供应商、交期、MOQ、付款和售后换货周期。</p><div class="record-actions"><button class="ghost-btn" data-route="suppliers">进入供应商管理</button></div></article>
+        <article class="record-card"><h3>员工与权限</h3><p class="compact-note">维护账号、部门、数据范围、模块权限和流程操作权限。</p><div class="record-actions"><button class="ghost-btn" data-route="users">进入员工权限</button></div></article>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-header"><div><h2 class="panel-title">业务字典（下一步纳入）</h2><p class="compact-note">线索来源、项目类型、付款方式、出库类型、发货方式、售后问题类型、部门和仓库位置目前仍为系统预设值。后续会在这里统一维护，并保护已经被历史单据使用的值。</p></div></div>
+    </section>
+  `;
+}
+
 function getDefaultRecord(moduleId) {
   const fields = moduleFields[moduleId] || [];
   const record = { id: uid(moduleId.slice(0, 3)), createdBy: state.currentUser.id, createdAt: nowIso(), updatedAt: nowIso() };
@@ -2163,7 +2182,7 @@ function renderField(moduleId, [key, label, type, required, options], record) {
   return `<div class="field ${span}${immediateField ? " immediate-delivery-field" : ""}"><label>${label}${required ? " *" : ""}</label>${input}</div>`;
 }
 
-const configurableModules = () => modules.filter((module) => !["dashboard", "users"].includes(module.id));
+const configurableModules = () => modules.filter((module) => !["dashboard", "users", "settings"].includes(module.id));
 const modulePermissionLevels = {
   none: { label: "不可见", actions: [] },
   view: { label: "仅查看", actions: ["view"] },
