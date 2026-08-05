@@ -1,5 +1,5 @@
 import { workflowActionRoles, workflowActions } from "./workflow-config.js";
-import { adjustInventory as adjustInventoryRequest, ensureInventory as ensureInventoryRequest, getCurrentUser, loadDocuments, loadInventory, loadState, login, logout, outboundDelivery, receivePurchase as receivePurchaseRequest, saveState } from "./api-client.js";
+import { adjustInventory as adjustInventoryRequest, approveSalesOrder as approveSalesOrderRequest, checkSalesOrderInventory as checkSalesOrderInventoryRequest, ensureInventory as ensureInventoryRequest, getCurrentUser, loadDocuments, loadInventory, loadState, login, logout, outboundDelivery, receivePurchase as receivePurchaseRequest, saveState } from "./api-client.js";
 
 const APP_KEY = "xlx_ops_mvp_v1";
 const SESSION_KEY = "xlx_ops_session_v1";
@@ -3443,22 +3443,36 @@ function submitSalesOrderForApproval(orderId) {
   render();
 }
 
-function approveSalesOrder(orderId) {
+async function approveSalesOrder(orderId) {
   const order = db.salesOrders.find((item) => item.id === orderId);
   if (!order || order.status !== "待销售审批" || !canApproveSalesOrder()) return;
+  if (SERVER_MODE) {
+    const { response, payload } = await approveSalesOrderRequest(orderId);
+    if (!response.ok) return toast(payload.message || "审批失败，请刷新后重试");
+    await loadData();
+    toast(payload.message || "销售订单已审批");
+    render();
+    return;
+  }
   order.status = "待库存确认";
   order.approvedBy = state.currentUser.id;
   order.approvedAt = nowIso();
   order.updatedAt = nowIso();
   logAction("approve", "salesOrders", order.id, "销售订单审批通过，系统开始核验库存");
-  // 库存核验是系统规则，不要求销售、仓库再重复点一次。
-  // 库存不足自动转采购，货齐则进入待出库；待库存确认仅保留给历史异常单据重新核验。
   checkSalesOrderInventory(order.id, { automatic: true });
 }
 
-function checkSalesOrderInventory(orderId, { automatic = false } = {}) {
+async function checkSalesOrderInventory(orderId, { automatic = false } = {}) {
   const order = db.salesOrders.find((item) => item.id === orderId);
   if (!order || order.status !== "待库存确认" || (!automatic && !canWorkflow("inventory_check"))) return;
+  if (SERVER_MODE) {
+    const { response, payload } = await checkSalesOrderInventoryRequest(orderId);
+    if (!response.ok) return toast(payload.message || "库存核验失败，请刷新后重试");
+    await loadData();
+    toast(payload.message || "库存核验完成");
+    render();
+    return;
+  }
   const itemValidation = validateDocumentItems("salesOrders", order);
   if (!itemValidation.ok) return toast(itemValidation.message);
   const inventoryCheck = orderInventoryCheck(order);

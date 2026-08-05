@@ -38,5 +38,7 @@ export function ensureInventory(item) {
 
 export const receivePurchase = (id) => request(`/api/purchases/${encodeURIComponent(id)}/receive`, { method: "POST" });
 export const outboundDelivery = (id) => request(`/api/deliveries/${encodeURIComponent(id)}/outbound`, { method: "POST" });
+export const approveSalesOrder = (id) => request(`/api/sales-orders/${encodeURIComponent(id)}/approve`, { method: "POST" });
+export const checkSalesOrderInventory = (id) => request(`/api/sales-orders/${encodeURIComponent(id)}/check-inventory`, { method: "POST" });
 
 export { request };

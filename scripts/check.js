@@ -18,6 +18,7 @@ const targets = [
   "routes/auth.js",
   "routes/documents.js",
   "routes/inventory.js",
+  "routes/sales-workflow.js",
   "routes/state.js",
   "app/js/api-client.js",
   "app/js/app.js",
