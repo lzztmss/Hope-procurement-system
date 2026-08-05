@@ -1,5 +1,5 @@
 import { workflowActionRoles, workflowActions } from "./workflow-config.js";
-import { adjustInventory as adjustInventoryRequest, approveSalesOrder as approveSalesOrderRequest, checkSalesOrderInventory as checkSalesOrderInventoryRequest, createPurchaseRequest as createPurchaseRequestRequest, ensureInventory as ensureInventoryRequest, getCurrentUser, loadDocuments, loadInventory, loadState, login, logout, outboundDelivery, receivePurchase as receivePurchaseRequest, saveState } from "./api-client.js";
+import { adjustInventory as adjustInventoryRequest, approveSalesOrder as approveSalesOrderRequest, checkSalesOrderInventory as checkSalesOrderInventoryRequest, createDelivery as createDeliveryRequest, createPurchaseRequest as createPurchaseRequestRequest, ensureInventory as ensureInventoryRequest, getCurrentUser, loadDocuments, loadInventory, loadState, login, logout, outboundDelivery, receivePurchase as receivePurchaseRequest, saveState } from "./api-client.js";
 
 const APP_KEY = "xlx_ops_mvp_v1";
 const SESSION_KEY = "xlx_ops_session_v1";
@@ -3677,7 +3677,7 @@ function markPurchaseInTransit(purchaseId) {
   render();
 }
 
-function createDeliveryFromSalesOrder(orderId) {
+async function createDeliveryFromSalesOrder(orderId) {
   const order = db.salesOrders.find((item) => item.id === orderId);
   if (!order) return;
   if (order.status !== "待出库") {
@@ -3686,6 +3686,27 @@ function createDeliveryFromSalesOrder(orderId) {
   }
   if (!canWorkflow("delivery_create")) {
     toast("你没有生成出库单的权限，请联系仓库或管理员");
+    return;
+  }
+  if (SERVER_MODE) {
+    try {
+      const { response, payload } = await createDeliveryRequest(orderId);
+      if (!response.ok || !payload.ok) {
+        toast(payload.message || "生成出库单失败，请稍后重试");
+        return;
+      }
+      applyWorkflowOrder(payload.order);
+      if (payload.delivery) {
+        const index = db.deliveries.findIndex((item) => item.id === payload.delivery.id);
+        if (index >= 0) db.deliveries[index] = payload.delivery;
+        else db.deliveries.unshift(payload.delivery);
+      }
+      toast(payload.message || "已生成出库单");
+      render();
+      refreshWorkflowData();
+    } catch {
+      toast("服务器生成出库单失败，请检查网络或联系管理员");
+    }
     return;
   }
   const existing = activeDeliveryForSalesOrder(order.id, order.deliveryId);

@@ -45,5 +45,6 @@ export const createPurchaseRequest = (id, payload) => request(`/api/sales-orders
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(payload),
 });
+export const createDelivery = (id) => request(`/api/sales-orders/${encodeURIComponent(id)}/create-delivery`, { method: "POST" });
 
 export { request };

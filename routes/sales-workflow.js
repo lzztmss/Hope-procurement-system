@@ -113,6 +113,42 @@ function createPurchase(state, order, shortages, operatorId, details = {}) {
   return purchase;
 }
 
+function createDelivery(state, order, operatorId) {
+  const existing = (state.deliveries || []).find((delivery) =>
+    (delivery.id === order.deliveryId || delivery.sourceSalesOrderId === order.id)
+    && !["异常", "已取消"].includes(delivery.status)
+  );
+  if (existing) return { delivery: existing, created: false };
+
+  const check = evaluateInventory(state, order);
+  if (!check.ready) return { delivery: null, created: false, shortages: check.shortages };
+
+  const delivery = {
+    id: `delivery-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    code: nextCode("D"),
+    date: nowIso().slice(0, 10),
+    project: order.customer || "",
+    type: "销售交付",
+    items: check.readyItems,
+    receiver: order.contact || "",
+    owner: order.owner || operatorId,
+    sourceSalesOrderId: order.id,
+    training: "待确认",
+    status: "待出库",
+    remark: `由销售订单 ${order.code} 自动生成`,
+    createdBy: operatorId,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  applyLegacyItemSummary(delivery);
+  state.deliveries = state.deliveries || [];
+  state.deliveries.unshift(delivery);
+  order.deliveryId = delivery.id;
+  order.updatedAt = nowIso();
+  logAction(state, operatorId, "create", "deliveries", delivery.id, `由销售订单 ${order.code} 生成出库单`);
+  return { delivery, created: true };
+}
+
 function createSalesWorkflowRoute({ readBody, maxBodyBytes, sendJson, requireUser, readState, writeState, canPerformWorkflow }) {
   async function saveWorkflow(state, revision) {
     state.meta = { ...(state.meta || {}), revision: revision + 1, updatedAt: nowIso() };
@@ -120,13 +156,15 @@ function createSalesWorkflowRoute({ readBody, maxBodyBytes, sendJson, requireUse
   }
 
   async function handle(req, res) {
-    const matched = req.url.match(/^\/api\/sales-orders\/([^/]+)\/(approve|check-inventory|create-purchase-request)$/);
+    const matched = req.url.match(/^\/api\/sales-orders\/([^/]+)\/(approve|check-inventory|create-purchase-request|create-delivery)$/);
     if (req.method !== "POST" || !matched) return false;
     const user = await requireUser(req, res);
     if (!user) return true;
     const [, encodedId, action] = matched;
     const state = await readState();
-    const requiredAction = action === "approve" ? "sales_approve" : (action === "create-purchase-request" ? "purchase_request_create" : "inventory_check");
+    const requiredAction = action === "approve"
+      ? "sales_approve"
+      : (action === "create-purchase-request" ? "purchase_request_create" : (action === "create-delivery" ? "delivery_create" : "inventory_check"));
     if (!canPerformWorkflow(state, user, requiredAction)) {
       sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前账号没有此流程操作权限" });
       return true;
@@ -134,6 +172,26 @@ function createSalesWorkflowRoute({ readBody, maxBodyBytes, sendJson, requireUse
     const order = (state.salesOrders || []).find((item) => item.id === decodeURIComponent(encodedId));
     if (!order) {
       sendJson(res, 404, { ok: false, error: "NOT_FOUND", message: "销售订单不存在或已被删除" });
+      return true;
+    }
+    if (action === "create-delivery") {
+      if (order.status !== "待出库") {
+        sendJson(res, 409, { ok: false, error: "INVALID_STATUS", message: "当前订单暂不能生成出库单" });
+        return true;
+      }
+      const revision = Number(state.meta?.revision || 0);
+      const result = createDelivery(state, order, user.id);
+      if (!result.delivery) {
+        sendJson(res, 409, { ok: false, error: "INSUFFICIENT_STOCK", message: `库存不足，仍有 ${result.shortages.length} 项产品未满足，暂不能生成出库单` });
+        return true;
+      }
+      await saveWorkflow(state, revision);
+      sendJson(res, 200, {
+        ok: true,
+        order,
+        delivery: result.delivery,
+        message: result.created ? `已生成出库单 ${result.delivery.code}` : `该订单已有出库单 ${result.delivery.code}`,
+      });
       return true;
     }
     if (action === "create-purchase-request") {
