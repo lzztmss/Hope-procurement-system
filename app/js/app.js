@@ -996,10 +996,14 @@ function productModelsForName(name, currentValue = "") {
     const value = String(model || "").trim();
     if (value && !models.includes(value)) models.push(value);
   };
-  (db.products || []).filter((product) => {
-    const candidate = normalizedProductName(product.name);
+  const nameMatches = (record) => {
+    const candidate = normalizedProductName(record?.name);
     return candidate === target || (candidate.length > 1 && target.length > 1 && (candidate.includes(target) || target.includes(candidate)));
-  }).forEach((product) => add(product.model));
+  };
+  // 产品字典是主数据来源；库存中已有但尚未补入产品字典的历史规格也必须可选，
+  // 否则销售人员会出现“库存有货却选不到型号”的情况。
+  (db.products || []).filter(nameMatches).forEach((product) => add(product.model));
+  (db.inventory || []).filter(nameMatches).forEach((item) => add(item.model));
   if (!models.length) add(currentValue);
   return models;
 }
