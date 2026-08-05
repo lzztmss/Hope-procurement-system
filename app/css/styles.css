@@ -52,19 +52,22 @@ button {
 .login-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(360px, 460px) 1fr;
+  grid-template-columns: 1fr minmax(360px, 460px);
   background: #fff;
 }
 
 .login-panel {
+  grid-column: 2;
   padding: 56px 42px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
 }
 
 .login-visual {
+  grid-column: 1;
+  grid-row: 1;
   background:
     linear-gradient(rgba(31, 78, 121, 0.72), rgba(31, 78, 121, 0.82)),
     url("../assets/logo.jpg") center / 320px 320px no-repeat,
@@ -1171,7 +1174,7 @@ tbody tr:nth-child(even) td {
 
   .login-panel {
     min-height: 100vh;
-    border-right: 0;
+    border-left: 0;
     padding: 34px 22px;
   }
 
