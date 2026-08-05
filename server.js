@@ -104,7 +104,7 @@ function inventoryHasReferences(state, item) {
   return ["deliveries", "aftersales"].some((collection) => (state[collection] || []).some((record) => record.inventoryId === item.id));
 }
 
-const salesOrderStages = ["草稿", "待销售审批", "待库存确认", "待采购审批", "待采购到货", "待出库", "已出库", "已完成"];
+const salesOrderStages = ["草稿", "待销售审批", "待库存确认", "待采购申请", "待采购审批", "待采购到货", "待出库", "已出库", "已完成"];
 const irreversiblePurchaseStatuses = new Set(["已下单", "在途", "已到货"]);
 const irreversibleDeliveryStatuses = new Set(["已出库", "配送中", "已签收", "已验收"]);
 const reversiblePurchaseStatuses = new Set(["待采购审批", "待技术确认", "待采购确认", "异常"]);
@@ -230,7 +230,7 @@ const inventoryRoute = createInventoryRoute({
 
 const documentRoute = createDocumentRoute({ sendJson, requireUser, listDocuments, readState, canAccessModule, canSeeRecord });
 const stateRoute = createStateRoute({ readBody, maxBodyBytes: MAX_BODY_BYTES, sendJson, requireUser, readState, writeState, assertSensitiveStateWrite, filterStateForUser, assertStateWriteAccess, mergeStateForUser });
-const salesWorkflowRoute = createSalesWorkflowRoute({ sendJson, requireUser, readState, writeState, canPerformWorkflow });
+const salesWorkflowRoute = createSalesWorkflowRoute({ readBody, maxBodyBytes: MAX_BODY_BYTES, sendJson, requireUser, readState, writeState, canPerformWorkflow });
 
 function safeStaticPath(urlPath) {
   let decoded = decodeURIComponent(urlPath.split("?")[0]);

@@ -40,5 +40,10 @@ export const receivePurchase = (id) => request(`/api/purchases/${encodeURICompon
 export const outboundDelivery = (id) => request(`/api/deliveries/${encodeURIComponent(id)}/outbound`, { method: "POST" });
 export const approveSalesOrder = (id) => request(`/api/sales-orders/${encodeURIComponent(id)}/approve`, { method: "POST" });
 export const checkSalesOrderInventory = (id) => request(`/api/sales-orders/${encodeURIComponent(id)}/check-inventory`, { method: "POST" });
+export const createPurchaseRequest = (id, payload) => request(`/api/sales-orders/${encodeURIComponent(id)}/create-purchase-request`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload),
+});
 
 export { request };

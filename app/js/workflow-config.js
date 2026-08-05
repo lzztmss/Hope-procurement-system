@@ -4,6 +4,7 @@ export const workflowActions = [
   { id: "sales_submit", group: "销售订单", label: "提交销售审批", defaultRoles: ["admin", "sales", "coordinator"] },
   { id: "sales_approve", group: "销售订单", label: "审批销售订单", defaultRoles: ["admin", "leader", "coordinator"] },
   { id: "inventory_check", group: "销售订单", label: "重新核验库存（异常处理）", defaultRoles: ["admin", "sales", "coordinator", "warehouse"] },
+  { id: "purchase_request_create", group: "销售订单", label: "发起缺货采购申请", defaultRoles: ["admin", "sales", "coordinator"] },
   { id: "purchase_technical_confirm", group: "采购需求", label: "技术确认采购", defaultRoles: ["admin", "technician", "trainer"] },
   { id: "purchase_approve", group: "采购需求", label: "采购审批并下单", defaultRoles: ["admin", "purchase"] },
   { id: "purchase_mark_transit", group: "采购需求", label: "标记采购在途", defaultRoles: ["admin", "purchase"] },

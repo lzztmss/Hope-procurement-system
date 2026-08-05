@@ -1,5 +1,5 @@
 import { workflowActionRoles, workflowActions } from "./workflow-config.js";
-import { adjustInventory as adjustInventoryRequest, approveSalesOrder as approveSalesOrderRequest, checkSalesOrderInventory as checkSalesOrderInventoryRequest, ensureInventory as ensureInventoryRequest, getCurrentUser, loadDocuments, loadInventory, loadState, login, logout, outboundDelivery, receivePurchase as receivePurchaseRequest, saveState } from "./api-client.js";
+import { adjustInventory as adjustInventoryRequest, approveSalesOrder as approveSalesOrderRequest, checkSalesOrderInventory as checkSalesOrderInventoryRequest, createPurchaseRequest as createPurchaseRequestRequest, ensureInventory as ensureInventoryRequest, getCurrentUser, loadDocuments, loadInventory, loadState, login, logout, outboundDelivery, receivePurchase as receivePurchaseRequest, saveState } from "./api-client.js";
 
 const APP_KEY = "xlx_ops_mvp_v1";
 const SESSION_KEY = "xlx_ops_session_v1";
@@ -138,7 +138,7 @@ const moduleFields = {
     ["contractFile", "合同附件说明", "text", false],
     ["deliveryDate", "预计交付日期", "date", false],
     ["owner", "业务负责人", "user", true],
-    ["status", "订单状态", "select", true, ["草稿", "待销售审批", "待采购审批", "待采购到货", "待出库", "已出库", "已完成", "已取消"]],
+    ["status", "订单状态", "select", true, ["草稿", "待销售审批", "待采购申请", "待采购审批", "待采购到货", "待出库", "已出库", "已完成", "已取消"]],
     ["remark", "备注", "textarea", false],
   ],
   purchases: [
@@ -1588,7 +1588,8 @@ function bindGlobalActions() {
   document.querySelectorAll("[data-create-order]").forEach((btn) => btn.addEventListener("click", () => openSalesOrderFromLead(btn.dataset.createOrder)));
   document.querySelectorAll("[data-submit-order]").forEach((btn) => btn.addEventListener("click", () => submitSalesOrderForApproval(btn.dataset.submitOrder)));
   document.querySelectorAll("[data-approve-order]").forEach((btn) => btn.addEventListener("click", () => approveSalesOrder(btn.dataset.approveOrder)));
-  document.querySelectorAll("[data-check-order]").forEach((btn) => btn.addEventListener("click", () => confirmAction("重新核验库存", "系统将根据当前可用库存重新判断是否可出库；库存不足时会自动生成采购申请。", () => checkSalesOrderInventory(btn.dataset.checkOrder))));
+  document.querySelectorAll("[data-check-order]").forEach((btn) => btn.addEventListener("click", () => confirmAction("重新核验库存", "系统将根据当前可用库存重新判断是否可出库；库存不足时会等待销售确认后再发起采购申请。", () => checkSalesOrderInventory(btn.dataset.checkOrder))));
+  document.querySelectorAll("[data-create-purchase-request]").forEach((btn) => btn.addEventListener("click", () => openPurchaseRequest(btn.dataset.createPurchaseRequest)));
   document.querySelectorAll("[data-create-delivery]").forEach((btn) => btn.addEventListener("click", () => confirmAction("确认生成出库单", "确认后将从该销售订单带入客户、产品和数量，生成待出库单。", () => createDeliveryFromSalesOrder(btn.dataset.createDelivery))));
   document.querySelectorAll("[data-confirm-outbound]").forEach((btn) => btn.addEventListener("click", () => confirmAction("仓库确认出库", "请确认实物、产品明细、数量及必要准备项均已核对。确认后将正式扣减库存，不能当作普通状态点击。", () => confirmDeliveryOutbound(btn.dataset.confirmOutbound))));
   document.querySelectorAll("[data-create-training]").forEach((btn) => btn.addEventListener("click", () => openTrainingFromDelivery(btn.dataset.createTraining)));
@@ -1957,6 +1958,9 @@ function renderActions(moduleId, record) {
     }
     if (record.status === "待库存确认" && canWorkflow("inventory_check")) {
       buttons.push(`<button class="primary-btn" data-check-order="${record.id}">重新核验库存</button>`);
+    }
+    if (record.status === "待采购申请" && canWorkflow("purchase_request_create")) {
+      buttons.push(`<button class="primary-btn" data-create-purchase-request="${record.id}">发起采购申请</button>`);
     }
     if (record.status === "待出库") {
       const delivery = activeDeliveryForSalesOrder(record.id, record.deliveryId);
@@ -3470,7 +3474,7 @@ async function approveSalesOrder(orderId) {
   if (SERVER_MODE) {
     const { response, payload } = await approveSalesOrderRequest(orderId);
     if (!response.ok) return toast(payload.message || "审批失败，请刷新后重试");
-    await loadData();
+    db = await loadData();
     toast(payload.message || "销售订单已审批");
     render();
     return;
@@ -3483,13 +3487,50 @@ async function approveSalesOrder(orderId) {
   checkSalesOrderInventory(order.id, { automatic: true });
 }
 
+function openPurchaseRequest(orderId) {
+  const order = db.salesOrders.find((item) => item.id === orderId);
+  if (!order || order.status !== "待采购申请" || !canWorkflow("purchase_request_create")) return;
+  const shortages = Array.isArray(order.procurementShortages) ? order.procurementShortages : [];
+  const shortageRows = shortages.length
+    ? shortages.map((line) => `<tr><td>${escapeHtml(line.product || "-")}</td><td>${escapeHtml(line.model || "-")}</td><td>${escapeHtml(line.quantity || 0)}</td><td>${escapeHtml(line.shortage || 0)}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty">请先重新核验库存</td></tr>`;
+  document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" data-purchase-request-modal>
+    <form class="modal" data-purchase-request-form autocomplete="off">
+      <div class="modal-header"><div><h2 class="panel-title">发起采购申请</h2><p class="compact-note">系统已按当前可用库存计算缺口；确认后将采购申请发送给采购部门。</p></div><button class="icon-btn" type="button" data-close-purchase-request>×</button></div>
+      <div class="modal-body"><div class="form-grid">
+        <div class="field"><label>销售订单</label><div class="detail-value">${escapeHtml(order.code)}</div></div>
+        <div class="field"><label>客户/项目</label><div class="detail-value">${escapeHtml(order.customer || "-")}</div></div>
+        <div class="field"><label>要求到货日期</label><input name="requiredDate" type="date" value="${escapeHtml(order.deliveryDate || today)}" required /></div>
+        <div class="field"><label>申请备注</label><input name="remark" placeholder="例如：客户交付日期不可延期" /></div>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>产品</th><th>型号/规格</th><th>订单数量</th><th>本次申请数量</th></tr></thead><tbody>${shortageRows}</tbody></table></div></div>
+      <div class="modal-footer"><button class="ghost-btn" type="button" data-close-purchase-request>取消</button><button class="primary-btn" type="submit" ${shortages.length ? "" : "disabled"}>确认发送采购申请</button></div>
+    </form>
+  </div>`);
+  const close = () => document.querySelector("[data-purchase-request-modal]")?.remove();
+  document.querySelectorAll("[data-close-purchase-request]").forEach((button) => button.addEventListener("click", close));
+  document.querySelector("[data-purchase-request-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const { response, payload } = await createPurchaseRequestRequest(order.id, {
+      requiredDate: formData.get("requiredDate"),
+      remark: formData.get("remark"),
+    });
+    if (!response.ok) return toast(payload.message || "采购申请发送失败，请刷新后重试");
+    db = await loadData();
+    close();
+    toast(payload.message || "采购申请已发送给采购部门");
+    render();
+  });
+}
+
 async function checkSalesOrderInventory(orderId, { automatic = false } = {}) {
   const order = db.salesOrders.find((item) => item.id === orderId);
   if (!order || order.status !== "待库存确认" || (!automatic && !canWorkflow("inventory_check"))) return;
   if (SERVER_MODE) {
     const { response, payload } = await checkSalesOrderInventoryRequest(orderId);
     if (!response.ok) return toast(payload.message || "库存核验失败，请刷新后重试");
-    await loadData();
+    db = await loadData();
     toast(payload.message || "库存核验完成");
     render();
     return;
