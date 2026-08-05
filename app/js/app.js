@@ -822,31 +822,47 @@ async function loadData() {
 
 let db = null;
 
-function saveData() {
+async function saveData() {
   localStorage.setItem(APP_KEY, JSON.stringify(db));
-  if (SERVER_MODE) {
-    const payload = state.forceDelete
-      ? { ...db, meta: { ...(db.meta || {}), forceDelete: state.forceDelete } }
-      : db;
-    state.forceDelete = null;
-    saveState(payload).then(({ response, payload: result }) => {
-      if (response.ok) {
-        if (Number.isFinite(Number(result.revision))) {
-          db.meta = { ...(db.meta || {}), revision: Number(result.revision) };
-          localStorage.setItem(APP_KEY, JSON.stringify(db));
-        }
-        return;
+  if (!SERVER_MODE) return true;
+  const payload = state.forceDelete
+    ? { ...db, meta: { ...(db.meta || {}), forceDelete: state.forceDelete } }
+    : db;
+  state.forceDelete = null;
+  try {
+    const { response, payload: result } = await saveState(payload);
+    if (response.ok) {
+      if (Number.isFinite(Number(result.revision))) {
+        db.meta = { ...(db.meta || {}), revision: Number(result.revision) };
+        localStorage.setItem(APP_KEY, JSON.stringify(db));
       }
-      if (PUBLIC_PRODUCTION && response.status === 401) {
-        state.serverUser = null;
-        toast("登录已过期，请重新登录");
+      // 所有普通表单保存都以服务器返回的数据重新渲染。
+      // 用户不需要手动刷新，也不会继续看见本地的临时状态。
+      const freshData = await loadData();
+      if (freshData) {
+        db = freshData;
         render();
-      } else if (response.status === 409) {
-        toast("数据已在其他页面更新。请刷新页面后再继续操作。");
-      } else if (!response.ok) {
-        toast(`保存失败：${result.message || result.error || "服务器拒绝了本次修改"}`);
       }
-    }).catch(() => toast("服务器保存失败，请检查网络或联系管理员"));
+      return true;
+    }
+    if (PUBLIC_PRODUCTION && response.status === 401) {
+      state.serverUser = null;
+      toast("登录已过期，请重新登录");
+      render();
+    } else if (response.status === 409) {
+      toast("数据已在其他页面更新，页面已自动同步，请再操作一次。");
+      const freshData = await loadData();
+      if (freshData) {
+        db = freshData;
+        render();
+      }
+    } else {
+      toast(`保存失败：${result.message || result.error || "服务器拒绝了本次修改"}`);
+    }
+    return false;
+  } catch {
+    toast("服务器保存失败，请检查网络或联系管理员");
+    return false;
   }
 }
 
