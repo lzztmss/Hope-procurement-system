@@ -69,9 +69,8 @@ button {
   grid-column: 1;
   grid-row: 1;
   background:
-    linear-gradient(rgba(31, 78, 121, 0.72), rgba(31, 78, 121, 0.82)),
     url("../assets/logo.jpg") center / 320px 320px no-repeat,
-    #173e62;
+    linear-gradient(145deg, #245a88, #173e62);
   color: #fff;
   display: flex;
   align-items: flex-end;
