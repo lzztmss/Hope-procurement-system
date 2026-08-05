@@ -990,8 +990,12 @@ function productOptions(currentValue = "") {
     const text = String(value ?? "").trim();
     if (text && !options.includes(text)) options.push(text);
   };
-  const inventoryProductIds = new Set((db.inventory || []).map((item) => item.productId).filter(Boolean));
-  (db.products || [])
+  const inventoryProductIds = new Set([
+    ...(db.availableInventoryProductIds || []),
+    ...(db.inventory || []).map((item) => item.productId).filter(Boolean),
+  ]);
+  const products = (db.products?.length ? db.products : (db.formProducts || []));
+  products
     // 销售、采购等业务表单只选择“启用且已有库存档案”的产品。
     // 单据历史名称不会反向污染下拉；如要销售新产品，管理员先建立产品和库存档案。
     .filter((product) => product.status !== "停用" && inventoryProductIds.has(product.id))
@@ -1019,7 +1023,8 @@ function productModelsForName(name, currentValue = "") {
   };
   // 产品字典是主数据来源；库存中已有但尚未补入产品字典的历史规格也必须可选，
   // 否则销售人员会出现“库存有货却选不到型号”的情况。
-  (db.products || []).filter(nameMatches).forEach((product) => add(product.model));
+  const products = (db.products?.length ? db.products : (db.formProducts || []));
+  products.filter(nameMatches).forEach((product) => add(product.model));
   (db.inventory || []).filter(nameMatches).forEach((item) => add(item.model));
   if (!models.length) add(currentValue);
   return models;
