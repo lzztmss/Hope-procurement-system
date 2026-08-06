@@ -275,11 +275,8 @@ button {
   color: var(--brand-2);
 }
 
-/* 货号是业务识别码，必须完整、逐字符可辨，不随中英文界面字体产生视觉断字。 */
 .sku-cell {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-weight: 650;
-  letter-spacing: 0.015em;
   white-space: nowrap;
   word-break: normal;
 }
