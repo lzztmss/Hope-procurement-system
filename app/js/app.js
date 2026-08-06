@@ -1019,6 +1019,19 @@ function productOptions(currentValue = "") {
   return options;
 }
 
+function productDictionaryNameOptions(currentValue = "") {
+  const options = [];
+  const add = (value) => {
+    const text = String(value ?? "").trim();
+    if (text && !options.includes(text)) options.push(text);
+  };
+  (db.products || [])
+    .filter((product) => product.status !== "停用")
+    .forEach((product) => add(product.name));
+  add(currentValue);
+  return options;
+}
+
 function productById(productId) {
   const products = db.products?.length ? db.products : (db.formProducts || []);
   return products.find((product) => product.id === productId) || null;
@@ -2300,14 +2313,15 @@ function renderField(moduleId, [key, label, type, required, options], record) {
     const allowedOptions = key === "status" ? allowedWorkflowStatusOptions(moduleId, value, configuredOptions) : configuredOptions;
     input = `<select ${common}>${allowedOptions.map((op) => `<option ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
   } else if (type === "product") {
-    input = `<select ${common}><option value="">请选择产品</option>${productOptions(value).map((op) => `<option value="${escapeHtml(op)}" ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
+    const names = moduleId === "inventory" ? productDictionaryNameOptions(value) : productOptions(value);
+    input = `<select ${common}><option value="">请选择产品</option>${names.map((op) => `<option value="${escapeHtml(op)}" ${String(value) === op ? "selected" : ""}>${escapeHtml(op)}</option>`).join("")}</select>`;
   } else if (type === "productname") {
-    const names = productOptions(value);
+    const names = productDictionaryNameOptions(value);
     input = `<div class="product-name-picker" data-product-name-picker>
       <input ${common} class="product-name-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" value="${escapeHtml(value)}" placeholder="选择已有产品或输入新名称" />
       <button class="product-name-toggle" type="button" aria-label="展开产品名称选项">⌄</button>
       <div class="product-name-menu" role="listbox" hidden>
-        ${names.map((name) => `<button type="button" class="product-name-option" role="option" data-product-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("")}
+        ${names.length ? names.map((name) => `<button type="button" class="product-name-option" role="option" data-product-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("") : `<div class="product-name-empty">暂无已有产品，可直接输入新名称</div>`}
       </div>
     </div>`;
   } else if (type === "productsku") {

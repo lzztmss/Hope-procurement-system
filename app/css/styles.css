@@ -369,6 +369,12 @@ button {
   outline: 0;
 }
 
+.product-name-empty {
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .primary-btn,
 .ghost-btn,
 .danger-btn,
