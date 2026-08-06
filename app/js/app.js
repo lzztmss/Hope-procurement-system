@@ -283,7 +283,7 @@ const moduleFields = {
     ["scope", "数据范围", "select", true, ["本人", "本部门", "全部"]],
     ["modulePermissions", "模块操作权限", "modulepermissions", false],
     ["workflowActions", "流程操作权限", "workflowactions", false],
-    ["password", "登录密码（新增必填，编辑留空不变）", "password", false],
+    ["password", "登录密码", "password", false],
   ],
 };
 
@@ -2307,6 +2307,10 @@ function renderField(moduleId, [key, label, type, required, options], record) {
     input = renderWorkflowPermissionEditor(record);
   } else if (type === "textarea") {
     input = `<textarea ${common}>${escapeHtml(value)}</textarea>`;
+  } else if (type === "password") {
+    const isEditingUser = moduleId === "users" && Boolean(record.id);
+    input = `<input ${common} type="password" value="" placeholder="${isEditingUser ? "已设置；填写后才会重置" : "请输入登录密码"}" />
+      <small class="field-hint">${isEditingUser ? "密码已设置。为保护账号安全，系统不会显示原密码或圆点；留空保存不会修改密码。" : "新增账号必须设置登录密码。"}</small>`;
   } else {
     const numberRules = type === "number" ? `min="${key === "quantity" ? 1 : 0}" step="any"` : "";
     const dictionaryKey = type === "text" ? dictionaryKeyForField(moduleId, key) : "";
