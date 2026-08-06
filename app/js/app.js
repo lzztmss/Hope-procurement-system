@@ -1711,9 +1711,6 @@ function renderDashboard() {
           </tbody>
         </table>
       </div>
-      <div class="settings-grid">
-        ${projectRows().map((row) => `<article class="record-card"><h3>${escapeHtml(row.project)}</h3><div class="record-meta"><span>线索：${escapeHtml(row.stage)}</span><span>采购：${escapeHtml(row.purchase)}</span><span>交付：${escapeHtml(row.delivery)}</span><span>售后：${escapeHtml(row.after)}</span></div></article>`).join("")}
-      </div>
     </section>
   `;
 }
@@ -1746,18 +1743,36 @@ function renderTodo(label, count, route) {
 }
 
 function projectRows() {
-  const names = Array.from(new Set([...db.leads.map((x) => x.customer), ...db.purchases.map((x) => x.project).filter(Boolean), ...db.deliveries.map((x) => x.project), ...db.aftersales.map((x) => x.customer)]));
-  return names.slice(0, 8).map((name) => {
-    const lead = db.leads.find((x) => x.customer === name);
-    const purchase = db.purchases.find((x) => x.project === name && x.status !== "已取消");
-    const delivery = db.deliveries.find((x) => x.project === name && x.status !== "已取消");
+  const projectActivity = new Map();
+  const addActivity = (name, record, moduleId) => {
+    const project = String(name || "").trim();
+    if (!project) return;
+    const latest = recordLatestTime(record, moduleId);
+    projectActivity.set(project, Math.max(projectActivity.get(project) || 0, latest));
+  };
+  db.leads.forEach((record) => addActivity(record.customer, record, "leads"));
+  db.purchases.forEach((record) => addActivity(record.project, record, "purchases"));
+  db.deliveries.forEach((record) => addActivity(record.project, record, "deliveries"));
+  db.aftersales.forEach((record) => addActivity(record.customer, record, "aftersales"));
+
+  const latestRecord = (records, moduleId) => records.slice().sort((left, right) =>
+    recordLatestTime(right, moduleId) - recordLatestTime(left, moduleId)
+  )[0];
+
+  return [...projectActivity.entries()]
+    .sort(([, leftTime], [, rightTime]) => rightTime - leftTime)
+    .slice(0, 8)
+    .map(([name]) => {
+    const lead = latestRecord(db.leads.filter((x) => x.customer === name), "leads");
+    const purchase = latestRecord(db.purchases.filter((x) => x.project === name && x.status !== "已取消"), "purchases");
+    const delivery = latestRecord(db.deliveries.filter((x) => x.project === name && x.status !== "已取消"), "deliveries");
     const afters = db.aftersales.filter((x) => x.customer === name);
     const afterRisk = afters.find((x) => !isArchivedRecord("aftersales", x));
     return {
       project: name,
       stage: lead?.stage || "-",
-      purchase: purchase ? `${purchase.product} · ${purchase.status}` : "-",
-      delivery: delivery ? `${inventoryName(delivery.inventoryId)} · ${delivery.status}` : "-",
+      purchase: purchase ? `${purchase.code || purchase.product || "采购单"} · ${purchase.status}` : "-",
+      delivery: delivery ? `${delivery.code || "出库单"} · ${delivery.status}` : "-",
       after: afterRisk ? `${afterRisk.priority} · ${afterRisk.status}` : "正常",
       owner: userName(lead?.owner || purchase?.owner || delivery?.owner || afterRisk?.owner),
     };
