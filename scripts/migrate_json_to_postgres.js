@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { initializeDatabase, closePool } = require("../lib/database");
+const { createInitialState } = require("../lib/initial-state");
 
 const ROOT = path.resolve(__dirname, "..");
 const ENV_FILE = path.join(ROOT, ".env");
@@ -21,7 +22,8 @@ function loadEnv() {
 async function main() {
   loadEnv();
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
-  const state = JSON.parse(fs.readFileSync(INITIAL_DB, "utf8"));
+  const sourceState = JSON.parse(fs.readFileSync(INITIAL_DB, "utf8"));
+  const state = createInitialState(sourceState, process.env.INITIAL_DATA_MODE);
   await initializeDatabase(state, process.env.INITIAL_ADMIN_PASSWORD || "123456");
   await closePool();
   console.log("PostgreSQL 初始化完成");

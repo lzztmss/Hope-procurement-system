@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "migrate": "node scripts/migrate_json_to_postgres.js",
-    "check": "node scripts/check.js",
+    "check": "node scripts/check.js && node scripts/check-initial-state.js",
     "check:permissions": "node scripts/check-inventory-permissions.js",
     "check:access": "node scripts/check-access-control.js"
   },

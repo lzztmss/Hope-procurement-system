@@ -14,6 +14,7 @@ const { createSalesWorkflowRoute } = require("./routes/sales-workflow");
 const { createAfterSalesWorkflowRoute } = require("./routes/aftersales-workflow");
 const { canPerformWorkflow } = require("./lib/workflow-permissions");
 const { filterStateForUser, assertStateWriteAccess, mergeStateForUser, canAccessModule, canSeeRecord } = require("./lib/access-control");
+const { createInitialState } = require("./lib/initial-state");
 const {
   initializeDatabase,
   readState,
@@ -349,7 +350,8 @@ async function start() {
   if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
     throw new Error("SESSION_SECRET must be configured and at least 32 characters");
   }
-  const initialState = JSON.parse(fs.readFileSync(INITIAL_DB, "utf8"));
+  const sourceState = JSON.parse(fs.readFileSync(INITIAL_DB, "utf8"));
+  const initialState = createInitialState(sourceState, process.env.INITIAL_DATA_MODE);
   await initializeDatabase(initialState, process.env.INITIAL_ADMIN_PASSWORD || "123456");
 
   const server = http.createServer((req, res) => {
