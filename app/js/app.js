@@ -1761,7 +1761,7 @@ function projectRows() {
 
   return [...projectActivity.entries()]
     .sort(([, leftTime], [, rightTime]) => rightTime - leftTime)
-    .slice(0, 8)
+    .slice(0, 10)
     .map(([name]) => {
     const lead = latestRecord(db.leads.filter((x) => x.customer === name), "leads");
     const purchase = latestRecord(db.purchases.filter((x) => x.project === name && x.status !== "已取消"), "purchases");
