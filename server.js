@@ -148,6 +148,39 @@ function assertWorkflowRollbackSafety(currentState, incomingState) {
   }
 }
 
+function deliveryLines(record) {
+  if (Array.isArray(record?.items) && record.items.length) return record.items;
+  return [{
+    inventoryId: record?.inventoryId || "",
+    productId: record?.productId || "",
+    product: record?.product || "",
+    model: record?.model || "",
+    quantity: Number(record?.quantity || 0),
+  }];
+}
+
+// 出库会影响真实库存。无论来自销售、售后换货、手工新增还是接口保存，
+// 新建或修改出库明细时都必须落到一条库存档案及其型号/规格。
+function assertDeliveryInventoryLinks(currentState, incomingState) {
+  const currentDeliveries = byId(currentState.deliveries);
+  const incomingInventory = byId(incomingState.inventory);
+  const incomingProducts = byId(incomingState.products);
+  for (const delivery of incomingState.deliveries || []) {
+    const previous = currentDeliveries.get(delivery.id);
+    const before = previous ? JSON.stringify(deliveryLines(previous)) : "";
+    const after = JSON.stringify(deliveryLines(delivery));
+    if (previous && before === after) continue;
+    for (const line of deliveryLines(delivery)) {
+      const inventory = incomingInventory.get(line.inventoryId || delivery.inventoryId);
+      const product = incomingProducts.get(line.productId) || incomingProducts.get(inventory?.productId);
+      const model = String(line.model || inventory?.model || product?.model || "").trim();
+      if (!inventory || !model) {
+        throw new Error(`出库单 ${delivery.code || delivery.id || ""} 必须关联有效库存产品和型号/规格后才能保存`);
+      }
+    }
+  }
+}
+
 function assertSensitiveStateWrite(user, currentState, incomingState) {
   const isAdmin = user?.role === "admin";
   const forceDelete = incomingState.meta?.forceDelete;
@@ -169,6 +202,7 @@ function assertSensitiveStateWrite(user, currentState, incomingState) {
       seen.add(code);
     }
   }
+  assertDeliveryInventoryLinks(currentState, incomingState);
   assertWorkflowRollbackSafety(currentState, incomingState);
 
   for (const [id, product] of currentProducts) {

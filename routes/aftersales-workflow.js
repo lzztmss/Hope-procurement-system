@@ -51,6 +51,22 @@ function createAfterSalesWorkflowRoute({ readBody, maxBodyBytes, sendJson, requi
       sendJson(res, 200, { ok: true, aftersales: record, delivery: existing, revision: Number(state.meta?.revision || 0), message: `该售后单已有换货出库单 ${existing.code}` });
       return true;
     }
+    const productDefinition = (state.products || []).find((item) => item.id === inventory.productId);
+    const product = inventory.name || productDefinition?.name || record.product || "";
+    const model = inventory.model || productDefinition?.model || record.model || "";
+    if (!product || !model) {
+      sendJson(res, 409, { ok: false, error: "MISSING_MODEL", message: "换货出库必须绑定产品和型号/规格；请先在库存台账补齐该库存项的型号/规格" });
+      return true;
+    }
+    const line = {
+      id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      inventoryId: inventory.id,
+      productId: inventory.productId || productDefinition?.id || record.productId || "",
+      product,
+      model,
+      quantity,
+      unitPrice: 0,
+    };
     const delivery = {
       id: `delivery-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       code: nextCode("D"),
@@ -58,10 +74,11 @@ function createAfterSalesWorkflowRoute({ readBody, maxBodyBytes, sendJson, requi
       project: record.customer || "",
       type: "售后换货",
       inventoryId: inventory.id,
-      productId: inventory.productId || record.productId || "",
-      product: inventory.name || record.product || "",
-      model: inventory.model || record.model || "",
+      productId: line.productId,
+      product: line.product,
+      model: line.model,
       quantity,
+      items: [line],
       receiver: record.customer || "",
       owner: record.owner || user.id,
       tested: "是",

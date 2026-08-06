@@ -12,7 +12,7 @@ function createDocumentRoute({ sendJson, requireUser, listDocuments, readState, 
       sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前账号无权查看该业务模块" });
       return true;
     }
-    const records = await listDocuments(kind);
+    const records = await listDocuments(kind, state);
     sendJson(res, 200, { ok: true, [kind]: records.filter((record) => canSeeRecord(state, user, record)) });
     return true;
   }

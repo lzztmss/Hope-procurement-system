@@ -195,7 +195,7 @@ const moduleFields = {
     ["project", "客户/项目", "text", true],
     ["address", "收货地址", "text", false],
     ["type", "出库类型", "select", true, ["送样", "销售交付", "老板赠送", "售后换货", "培训演示", "其他"]],
-    ["inventoryId", "产品", "inventory", true],
+    ["inventoryId", "产品/型号规格", "inventory", true],
     ["quantity", "数量", "number", true],
     ["receiver", "领用/收货人", "text", false],
     ["owner", "业务负责人", "user", true],
@@ -979,8 +979,14 @@ function supplierName(id) {
   return db.suppliers.find((s) => s.id === id)?.name || id || "-";
 }
 
+function workflowInventory() {
+  // 没有库存模块菜单的岗位仍会收到流程所需的库存摘要，用于选择规格、
+  // 生成出库单和校验可用量；它不包含价格、库位、供应商等库存管理字段。
+  return db.inventory?.length ? db.inventory : (db.formInventory || []);
+}
+
 function inventoryName(id) {
-  const item = db.inventory.find((inventory) => inventory.id === id);
+  const item = workflowInventory().find((inventory) => inventory.id === id);
   return item ? `${item.name}${item.model ? ` / ${item.model}` : ""}` : id || "-";
 }
 
@@ -1007,7 +1013,8 @@ function productOptions(currentValue = "") {
 }
 
 function productById(productId) {
-  return db.products.find((product) => product.id === productId) || null;
+  const products = db.products?.length ? db.products : (db.formProducts || []);
+  return products.find((product) => product.id === productId) || null;
 }
 
 function productModelsForName(name, currentValue = "") {
@@ -1025,7 +1032,7 @@ function productModelsForName(name, currentValue = "") {
   // 否则销售人员会出现“库存有货却选不到型号”的情况。
   const products = (db.products?.length ? db.products : (db.formProducts || []));
   products.filter(nameMatches).forEach((product) => add(product.model));
-  (db.inventory || []).filter(nameMatches).forEach((item) => add(item.model));
+  workflowInventory().filter(nameMatches).forEach((item) => add(item.model));
   if (!models.length) add(currentValue);
   return models;
 }
@@ -1036,7 +1043,7 @@ function inventoryLabel(item) {
 
 function inventoryOptionsForVariant(productName = "", model = "") {
   const product = findProductByLabel(db.products, productName, model);
-  return (db.inventory || []).filter((item) => {
+  return workflowInventory().filter((item) => {
     if (product?.id) return item.productId === product.id;
     if (!productName) return true;
     if (normalizedProductName(item.name) !== normalizedProductName(productName)) return false;
@@ -1045,12 +1052,13 @@ function inventoryOptionsForVariant(productName = "", model = "") {
 }
 
 function inventoryForProduct(productName, productId = "", model = "") {
+  const inventoryRecords = workflowInventory();
   if (productId) {
-    const byId = db.inventory.find((item) => item.productId === productId);
+    const byId = inventoryRecords.find((item) => item.productId === productId && (!model || item.model === model));
     if (byId) return byId;
   }
   const product = productById(productId) || findProductByLabel(db.products, productName, model);
-  return db.inventory.find((item) => {
+  return inventoryRecords.find((item) => {
     if (product?.id && item.productId === product.id) return true;
     const itemName = normalizedProductName(item.name);
     const target = normalizedProductName(productName);
@@ -1103,6 +1111,7 @@ function validateDocumentItems(moduleId, record) {
     if (["salesOrders", "purchases"].includes(moduleId) && !item.model) return { ok: false, message: `“${item.product || "该产品"}”必须选择型号/规格，才能准确联动库存` };
     if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0) return { ok: false, message: `“${itemLabel(item)}”的数量必须大于 0` };
     if (moduleId === "deliveries" && !item.inventoryId) return { ok: false, message: `“${itemLabel(item)}”未找到对应库存，请先在库存台账建立该规格` };
+    if (moduleId === "deliveries" && !item.model) return { ok: false, message: `“${item.product || "该产品"}”必须绑定型号/规格后才能生成出库单` };
   }
   return { ok: true };
 }
@@ -1383,7 +1392,7 @@ function fieldValue(moduleId, record, key) {
   if (["owner", "requester", "publisher", "techOwner"].includes(key)) return userName(record[key]);
   if (key === "supplierId") return supplierName(record[key]);
   if (key === "inventoryId") return inventoryName(record[key]);
-  if (key === "deliveryProduct") return db.inventory.find((item) => item.id === record.inventoryId)?.name || record.product || "-";
+  if (key === "deliveryProduct") return workflowInventory().find((item) => item.id === record.inventoryId)?.name || record.product || "-";
   if (key === "leadId") return db.leads.find((lead) => lead.id === record[key])?.code || "-";
   if (key === "salesOrderId") return db.salesOrders.find((order) => order.id === record[key])?.code || "-";
   if (key === "deliveryId") return db.deliveries.find((delivery) => delivery.id === record[key])?.code || "-";
@@ -2211,7 +2220,7 @@ function renderDocumentItemEditor(moduleId, record) {
 function renderDocumentItemRow(moduleId, item, productNames = productOptions()) {
   if (moduleId === "deliveries") {
     return `<div class="document-item-row delivery-item-row" data-document-item>
-      <label>产品/规格<select data-item-inventory required autocomplete="off"><option value="">请选择库存产品</option>${db.inventory.map((inventory) => `<option value="${inventory.id}" ${item.inventoryId === inventory.id ? "selected" : ""}>${escapeHtml(inventoryLabel(inventory))}</option>`).join("")}</select></label>
+      <label>产品/规格<select data-item-inventory required autocomplete="off"><option value="">请选择库存产品</option>${workflowInventory().map((inventory) => `<option value="${inventory.id}" ${item.inventoryId === inventory.id ? "selected" : ""}>${escapeHtml(inventoryLabel(inventory))}</option>`).join("")}</select></label>
       <label>数量<input data-item-quantity type="number" min="1" step="any" required autocomplete="off" value="${escapeHtml(item.quantity)}" /></label>
       <button type="button" class="icon-btn document-item-remove" data-remove-document-item aria-label="删除此产品">×</button>
     </div>`;
@@ -2521,7 +2530,7 @@ function collectDocumentItems(moduleId, form) {
   const items = rows.map((row) => {
     const quantity = Number(row.querySelector("[data-item-quantity]")?.value || 0);
     if (moduleId === "deliveries") {
-      const inventory = db.inventory.find((item) => item.id === row.querySelector("[data-item-inventory]")?.value);
+      const inventory = workflowInventory().find((item) => item.id === row.querySelector("[data-item-inventory]")?.value);
       return inventory ? { id: uid("line"), inventoryId: inventory.id, productId: inventory.productId || "", product: inventory.name, model: inventory.model, quantity, unitPrice: 0 } : { quantity };
     }
     const product = row.querySelector("[data-item-product]")?.value || "";
