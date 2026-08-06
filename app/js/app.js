@@ -1,5 +1,5 @@
 import { workflowActionRoles, workflowActions } from "./workflow-config.js";
-import { adjustInventory as adjustInventoryRequest, approveSalesOrder as approveSalesOrderRequest, checkSalesOrderInventory as checkSalesOrderInventoryRequest, createDelivery as createDeliveryRequest, createPurchaseRequest as createPurchaseRequestRequest, ensureInventory as ensureInventoryRequest, getCurrentUser, loadDocuments, loadInventory, loadState, login, logout, outboundDelivery, receivePurchase as receivePurchaseRequest, saveState } from "./api-client.js";
+import { adjustInventory as adjustInventoryRequest, approveSalesOrder as approveSalesOrderRequest, checkSalesOrderInventory as checkSalesOrderInventoryRequest, createDelivery as createDeliveryRequest, createPurchaseRequest as createPurchaseRequestRequest, createReplacementDelivery as createReplacementDeliveryRequest, ensureInventory as ensureInventoryRequest, getCurrentUser, loadDocuments, loadInventory, loadState, login, logout, outboundDelivery, receivePurchase as receivePurchaseRequest, saveState } from "./api-client.js";
 
 const APP_KEY = "xlx_ops_mvp_v1";
 const SESSION_KEY = "xlx_ops_session_v1";
@@ -4009,38 +4009,20 @@ async function returnAfterSalesToStock(id, selection = {}) {
   render();
 }
 
-function createReplacementDelivery(id, selection = {}) {
+async function createReplacementDelivery(id, selection = {}) {
   const record = getAfterSalesReturnRecord(id);
   const validation = record ? validateAfterSalesInventory(record, selection) : { ok: false, message: "售后工单不存在" };
   if (!validation.ok) return toast(validation.message);
-  if (db.deliveries.some((delivery) => delivery.sourceAfterSalesId === record.id && delivery.status !== "已取消")) return toast("该售后单已生成换货出库单");
-  if (availableStock(validation.item) < validation.quantity) return toast(`库存不足：${validation.item.name} 可用 ${availableStock(validation.item)}，无法换货出库 ${validation.quantity}`);
-  record.replacementInventoryId = validation.item.id;
-  record.replacementQuantity = validation.quantity;
-  const delivery = getDefaultRecord("deliveries");
-  Object.assign(delivery, {
-    project: record.customer,
-    type: "售后换货",
-    inventoryId: validation.item.id,
-    quantity: validation.quantity,
-    receiver: record.customer,
-    owner: record.owner,
-    tested: "是",
-    systemReady: "不适用",
-    training: "不需要",
-    status: "待出库",
-    sourceAfterSalesId: record.id,
-    remark: `由售后工单 ${record.code} 生成换货出库`,
-  });
-  db.deliveries.unshift(delivery);
-  record.replacementDeliveryId = delivery.id;
-  record.status = "换货待出库";
-  record.updatedAt = nowIso();
-  logAction("replacement_create", "aftersales", record.id, `已生成换货出库单 ${delivery.code}`);
-  logAction("create", "deliveries", delivery.id, `由售后工单 ${record.code} 生成换货出库单`);
-  saveData();
-  toast(`换货出库单 ${delivery.code} 已生成，等待仓库确认出库`);
-  render();
+  try {
+    const { response, payload } = await createReplacementDeliveryRequest(record.id, { inventoryId: validation.item.id, quantity: validation.quantity });
+    if (!response.ok) throw new Error(payload.message || payload.error || "生成换货出库单失败");
+    const freshData = await loadData();
+    if (freshData) db = freshData;
+    toast(payload.message || "换货出库单已生成，等待仓库确认出库");
+    render();
+  } catch (error) {
+    toast(error.message || "生成换货出库单失败，请刷新后重试");
+  }
 }
 
 function adjustStock(itemId, action, amount) {

@@ -11,6 +11,7 @@ const { createInventoryRoute } = require("./routes/inventory");
 const { createDocumentRoute } = require("./routes/documents");
 const { createStateRoute } = require("./routes/state");
 const { createSalesWorkflowRoute } = require("./routes/sales-workflow");
+const { createAfterSalesWorkflowRoute } = require("./routes/aftersales-workflow");
 const { canPerformWorkflow } = require("./lib/workflow-permissions");
 const { filterStateForUser, assertStateWriteAccess, mergeStateForUser, canAccessModule, canSeeRecord } = require("./lib/access-control");
 const {
@@ -231,6 +232,7 @@ const inventoryRoute = createInventoryRoute({
 const documentRoute = createDocumentRoute({ sendJson, requireUser, listDocuments, readState, canAccessModule, canSeeRecord });
 const stateRoute = createStateRoute({ readBody, maxBodyBytes: MAX_BODY_BYTES, sendJson, requireUser, readState, writeState, assertSensitiveStateWrite, filterStateForUser, assertStateWriteAccess, mergeStateForUser });
 const salesWorkflowRoute = createSalesWorkflowRoute({ readBody, maxBodyBytes: MAX_BODY_BYTES, sendJson, requireUser, readState, writeState, canPerformWorkflow });
+const afterSalesWorkflowRoute = createAfterSalesWorkflowRoute({ readBody, maxBodyBytes: MAX_BODY_BYTES, sendJson, requireUser, readState, writeState, canPerformWorkflow });
 
 function safeStaticPath(urlPath) {
   let decoded = decodeURIComponent(urlPath.split("?")[0]);
@@ -282,6 +284,7 @@ async function handleApi(req, res) {
     if (await inventoryRoute.handle(req, res)) return;
     if (await documentRoute.handle(req, res)) return;
     if (await salesWorkflowRoute.handle(req, res)) return;
+    if (await afterSalesWorkflowRoute.handle(req, res)) return;
     if (await stateRoute.handle(req, res)) return;
     sendJson(res, 404, { ok: false, error: "API not found" });
   } catch (error) {
