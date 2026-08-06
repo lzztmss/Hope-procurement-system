@@ -181,6 +181,23 @@ function assertDeliveryInventoryLinks(currentState, incomingState) {
   }
 }
 
+function assertUserAccounts(currentState, incomingState) {
+  const currentUsers = byId(currentState.users);
+  const accounts = new Set();
+  for (const user of incomingState.users || []) {
+    const account = String(user.phone || "").trim();
+    if (!account) throw new Error(`员工 ${user.name || user.id || ""} 必须填写登录账号`);
+    if (accounts.has(account)) throw new Error(`登录账号“${account}”重复，请为每位员工设置不同账号`);
+    accounts.add(account);
+    if (!currentUsers.has(user.id) && !String(user.password || "").trim()) {
+      throw new Error(`新增员工 ${user.name || user.id || ""} 必须设置首次登录密码`);
+    }
+    if (user.role === "custom" && !String(user.roleTitle || "").trim()) {
+      throw new Error(`员工 ${user.name || user.id || ""} 选择了自定义岗位，请填写岗位名称`);
+    }
+  }
+}
+
 function assertSensitiveStateWrite(user, currentState, incomingState) {
   const isAdmin = user?.role === "admin";
   const forceDelete = incomingState.meta?.forceDelete;
@@ -202,6 +219,7 @@ function assertSensitiveStateWrite(user, currentState, incomingState) {
       seen.add(code);
     }
   }
+  assertUserAccounts(currentState, incomingState);
   assertDeliveryInventoryLinks(currentState, incomingState);
   assertWorkflowRollbackSafety(currentState, incomingState);
 

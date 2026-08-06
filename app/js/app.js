@@ -81,6 +81,12 @@ const roles = {
     modules: ["dashboard", "salesOrders", "deliveries", "trainings", "aftersales", "products", "notices"],
     actions: ["view", "create", "edit"],
   },
+  custom: {
+    name: "自定义岗位",
+    scope: "本人",
+    modules: ["dashboard"],
+    actions: ["view"],
+  },
 };
 
 const modules = [
@@ -276,9 +282,10 @@ const moduleFields = {
   ],
   users: [
     ["name", "姓名", "text", true],
-    ["phone", "手机号", "text", false],
+    ["phone", "登录账号（手机号或英文账号）", "text", true],
     ["department", "部门", "select", true, ["管理层", "业务部", "采购部", "技术部", "仓库/行政", "售后部", "财务部"]],
     ["role", "角色", "role", true],
+    ["roleTitle", "自定义岗位名称（选择自定义岗位时必填）", "text", false],
     ["status", "账号状态", "select", true, ["启用", "禁用"]],
     ["scope", "数据范围", "select", true, ["本人", "本部门", "全部"]],
     ["modulePermissions", "模块操作权限", "modulepermissions", false],
@@ -1148,6 +1155,11 @@ function roleName(id) {
   return roles[id]?.name || id || "-";
 }
 
+function userRoleName(user) {
+  if (user?.role === "custom") return user.roleTitle || "自定义岗位";
+  return roleName(user?.role);
+}
+
 function currentRole() {
   return roles[state.currentUser?.role] || roles.sales;
 }
@@ -1389,6 +1401,7 @@ function fieldValue(moduleId, record, key) {
     if (record.totalAmount !== "" && record.totalAmount !== null && record.totalAmount !== undefined) return record.totalAmount;
     return Number(record.quantity || 0) * Number(record.unitPrice || 0);
   }
+  if (key === "role") return userRoleName(record);
   if (["owner", "requester", "publisher", "techOwner"].includes(key)) return userName(record[key]);
   if (key === "supplierId") return supplierName(record[key]);
   if (key === "inventoryId") return inventoryName(record[key]);
@@ -1397,7 +1410,6 @@ function fieldValue(moduleId, record, key) {
   if (key === "salesOrderId") return db.salesOrders.find((order) => order.id === record[key])?.code || "-";
   if (key === "deliveryId") return db.deliveries.find((delivery) => delivery.id === record[key])?.code || "-";
   if (key === "trainer") return userName(record[key]);
-  if (key === "role") return roleName(record[key]);
   if (Array.isArray(record[key])) return record[key].map(roleName).join("、");
   return record[key] ?? "-";
 }
@@ -1836,7 +1848,7 @@ function renderModule(moduleId) {
             <option ${state.statusFilter === "全部" ? "selected" : ""}>全部</option>
             ${allStatuses.map((s) => `<option ${state.statusFilter === s ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}
           </select>
-          ${can(moduleId, "create") ? `<button class="primary-btn" data-create="${moduleId}">${moduleId === "products" ? "新增产品/型号" : "新增"}</button>` : ""}
+          ${can(moduleId, "create") ? `<button class="primary-btn" data-create="${moduleId}">${moduleId === "products" ? "新增产品/型号" : (moduleId === "users" ? "新增员工" : "新增")}</button>` : ""}
           ${canSafeDelete ? `<button class="${bulkDeleteActive && state.bulkDelete.mode === "safe" ? "ghost-btn" : "danger-btn"}" data-toggle-bulk-delete="${moduleId}">${bulkDeleteActive && state.bulkDelete.mode === "safe" ? "取消删除" : "删除"}</button>` : ""}
           ${bulkDeleteActive && state.bulkDelete.mode === "safe" ? `<button class="danger-btn" data-confirm-bulk-delete="${moduleId}" ${state.bulkDelete.ids.length ? "" : "disabled"}>删除选中（${state.bulkDelete.ids.length}）</button>` : ""}
           ${canForceDelete ? `<button class="${bulkDeleteActive && state.bulkDelete.mode === "force" ? "ghost-btn" : "danger-btn"}" data-toggle-force-delete="${moduleId}">${bulkDeleteActive && state.bulkDelete.mode === "force" ? "取消强制删除" : "强制删除"}</button>` : ""}
@@ -2154,6 +2166,12 @@ function getDefaultRecord(moduleId) {
   if (moduleId === "trainings") record.code = nextDocumentCode("T");
   if (moduleId === "aftersales") record.code = nextDocumentCode("A");
   if (moduleId === "products") record.code = `PROD-${Date.now().toString().slice(-8)}`;
+  if (moduleId === "users") {
+    record.role = "sales";
+    record.department = "业务部";
+    record.scope = "本人";
+    record.status = "启用";
+  }
   return record;
 }
 
@@ -2183,7 +2201,9 @@ function renderModal(moduleId, record, isEdit) {
       : ["product", "model", "quantity", "unitPrice", "totalAmount"];
     fields = fields.filter(([key]) => !lineFields.includes(key));
   }
-  const defaultTitle = moduleId === "products"
+  const defaultTitle = moduleId === "users"
+    ? `${isEdit ? "编辑" : "新增"}员工账号`
+    : moduleId === "products"
     ? `${isEdit ? "编辑" : "新增"}产品/型号`
     : `${isEdit ? "编辑" : "新增"}${module.name}`;
   const title = state.editing?.title || defaultTitle;
@@ -2324,7 +2344,7 @@ function renderField(moduleId, [key, label, type, required, options], record) {
     const delivery = db.deliveries.find((item) => item.id === value);
     input = `<input type="hidden" name="${key}" value="${escapeHtml(value)}" /><div class="field-readonly">${delivery ? `<span class="status ${statusClass(delivery.status)}">${escapeHtml(delivery.code)}</span><small>${escapeHtml(delivery.status)} · ${escapeHtml(delivery.project)}</small>` : `<small>选择“需要”并保存后自动生成</small>`}</div>`;
   } else if (type === "user") {
-    input = `<select ${common}>${db.users.filter((u) => u.status === "启用").map((u) => `<option value="${u.id}" ${value === u.id ? "selected" : ""}>${escapeHtml(u.name)} - ${roleName(u.role)}</option>`).join("")}</select>`;
+    input = `<select ${common}>${db.users.filter((u) => u.status === "启用").map((u) => `<option value="${u.id}" ${value === u.id ? "selected" : ""}>${escapeHtml(u.name)} - ${escapeHtml(userRoleName(u))}</option>`).join("")}</select>`;
   } else if (type === "supplier") {
     input = `<select ${common}><option value="">未指定</option>${db.suppliers.map((s) => `<option value="${s.id}" ${value === s.id ? "selected" : ""}>${escapeHtml(s.name)} - ${escapeHtml(s.product)}</option>`).join("")}</select>`;
   } else if (type === "inventory") {
@@ -3154,6 +3174,14 @@ function validateRecordData(moduleId, record) {
   if (moduleId === "trainings") {
     const duplicatedDelivery = record.deliveryId && (db.trainings || []).find((training) => training.id !== record.id && training.deliveryId === record.deliveryId);
     if (duplicatedDelivery) return { ok: false, message: `出库单已关联培训验收单 ${duplicatedDelivery.code}，不能重复创建` };
+  }
+  if (moduleId === "users") {
+    const account = String(record.phone || "").trim();
+    if (!account) return { ok: false, message: "请填写“登录账号（手机号或英文账号）”" };
+    const duplicated = (db.users || []).find((user) => user.id !== record.id && String(user.phone || "").trim() === account);
+    if (duplicated) return { ok: false, message: `登录账号“${account}”已被 ${duplicated.name || "其他员工"} 使用，请换一个账号` };
+    if (!record.id && !String(record.password || "").trim()) return { ok: false, message: "新增员工必须设置首次登录密码" };
+    if (record.role === "custom" && !String(record.roleTitle || "").trim()) return { ok: false, message: "选择“自定义岗位”后，请填写岗位名称" };
   }
   return { ok: true };
 }
