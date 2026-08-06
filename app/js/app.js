@@ -400,7 +400,12 @@ function formatDate(value) {
       }).format(date);
     }
   }
-  return value.replace("T", " ").slice(0, 16);
+  // 仅格式化日期/日期时间字段。此前对任意文本替换 "T"，会把 SKU
+  // 例如 STRAP、KIT、SET 错误显示成 S RAP、KI 、SE 。
+  if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.test(value)) {
+    return value.replace("T", " ").slice(0, 16);
+  }
+  return value;
 }
 
 function escapeHtml(value) {
