@@ -3902,14 +3902,14 @@ function getAfterSalesReturnRecord(id) {
 function openAfterSalesInventoryDialog(id, action) {
   const record = getAfterSalesReturnRecord(id);
   if (!record) return toast("售后工单不存在");
-  // 无库存模块查看权的技术人员只持有脱敏的 formInventory，仍可在获授权的
-  // 售后入库流程中选择产品规格；库存数量不会显示在此弹窗。
+  // 无库存模块查看权的技术人员持有流程用库存摘要，仍可在获授权的售后流程
+  // 中选择产品规格并核验可用量；库存台账页面与价格、库位信息仍不开放。
   const inventoryChoices = db.inventory?.length ? db.inventory : (db.formInventory || []);
   if (!inventoryChoices.length) return toast("当前没有可选择的库存产品，请先建立库存台账。");
   const actionName = action === "replacement" ? "生成换货出库单" : (action === "repair-return" ? "维修完成入库" : "质检合格入库");
   const preferred = inventoryChoices.filter((item) => item.name === record.product && (!record.model || item.model === record.model));
   const options = [...preferred, ...inventoryChoices.filter((item) => !preferred.some((preferredItem) => preferredItem.id === item.id))]
-    .map((item) => `<option value="${item.id}" ${item.id === record.inventoryId ? "selected" : ""}>${escapeHtml(db.inventory?.length ? inventoryLabel(item) : `${item.name}${item.model ? ` / ${item.model}` : ""}`)}</option>`).join("");
+    .map((item) => `<option value="${item.id}" ${item.id === record.inventoryId ? "selected" : ""}>${escapeHtml(inventoryLabel(item))}</option>`).join("");
   document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" data-aftersales-inventory-dialog>
     <section class="modal confirm-modal">
       <div class="modal-header"><div><h2 class="panel-title">${actionName}</h2><p class="compact-note">仅本次实际入库或换货时选择产品和数量；售后工单本身无需关联库存。</p></div><button class="icon-btn" type="button" data-close-aftersales-inventory>×</button></div>
