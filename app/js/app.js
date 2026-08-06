@@ -1259,9 +1259,18 @@ function dueState(value) {
   return "";
 }
 
-function calcAlerts() {
+function dashboardData() {
+  return db.dashboardSummary || db;
+}
+
+function dashboardInventoryName(source, id) {
+  const item = (source.inventory || []).find((inventory) => inventory.id === id);
+  return item ? `${item.name}${item.model ? ` / ${item.model}` : ""}` : id || "-";
+}
+
+function calcAlerts(source = dashboardData()) {
   const alerts = [];
-  db.inventory.forEach((item) => {
+  (source.inventory || []).forEach((item) => {
     const available = availableStock(item);
     const status = inventoryStatus(item);
     if (status !== "正常") {
@@ -1285,7 +1294,7 @@ function calcAlerts() {
       });
     }
   });
-  db.purchases.forEach((p) => {
+  (source.purchases || []).forEach((p) => {
     const state = !isArchivedRecord("purchases", p) && dueState(p.lockedDate);
     if (state) {
       alerts.push({
@@ -1298,7 +1307,7 @@ function calcAlerts() {
       });
     }
   });
-  db.aftersales.forEach((a) => {
+  (source.aftersales || []).forEach((a) => {
     const state = !isArchivedRecord("aftersales", a) && dueState(a.promiseAt);
     if (state) {
       alerts.push({
@@ -1311,19 +1320,19 @@ function calcAlerts() {
       });
     }
   });
-  db.deliveries.forEach((d) => {
+  (source.deliveries || []).forEach((d) => {
     if (d.status === "异常") {
       alerts.push({
         id: `delivery-${d.id}`,
         level: "risk",
         title: `${d.code} 交付异常`,
-        message: `${d.project} ${inventoryName(d.inventoryId)} ${d.quantity} 件`,
+        message: `${d.project} ${dashboardInventoryName(source, d.inventoryId)} ${d.quantity} 件`,
         refModule: "deliveries",
         refId: d.id,
       });
     }
   });
-  db.leads.forEach((lead) => {
+  (source.leads || []).forEach((lead) => {
     const state = !isArchivedRecord("leads", lead) && dueState(lead.dueDate);
     if (!state) return;
     alerts.push({
@@ -1335,7 +1344,7 @@ function calcAlerts() {
       refId: lead.id,
     });
   });
-  db.notices.forEach((notice) => {
+  (source.notices || []).forEach((notice) => {
     const state = !isArchivedRecord("notices", notice) && notice.status !== "暂停" && dueState(notice.dueDate);
     if (!state) return;
     alerts.push({
@@ -1351,13 +1360,14 @@ function calcAlerts() {
 }
 
 function dashboardStats() {
-  const alerts = calcAlerts();
+  const source = dashboardData();
+  const alerts = calcAlerts(source);
   return {
-    leadsActive: db.leads.filter((x) => !isArchivedRecord("leads", x)).length,
-    purchasePending: db.purchases.filter((x) => !isArchivedRecord("purchases", x)).length,
+    leadsActive: (source.leads || []).filter((x) => !isArchivedRecord("leads", x)).length,
+    purchasePending: (source.purchases || []).filter((x) => !isArchivedRecord("purchases", x)).length,
     inventoryRisk: alerts.filter((x) => x.refModule === "inventory").length,
-    deliveryOpen: db.deliveries.filter((x) => !isArchivedRecord("deliveries", x)).length,
-    afterOpen: db.aftersales.filter((x) => !isArchivedRecord("aftersales", x)).length,
+    deliveryOpen: (source.deliveries || []).filter((x) => !isArchivedRecord("deliveries", x)).length,
+    afterOpen: (source.aftersales || []).filter((x) => !isArchivedRecord("aftersales", x)).length,
     alerts,
   };
 }
@@ -1656,6 +1666,7 @@ function renderRoute() {
 }
 
 function renderDashboard() {
+  const source = dashboardData();
   const stats = dashboardStats();
   const riskAlerts = stats.alerts.filter((a) => a.level === "risk");
   return `
@@ -1672,11 +1683,11 @@ function renderDashboard() {
           <h2 class="panel-title">今日待办和业务流转</h2>
         </div>
         <div class="list">
-          ${renderTodo("采购到货确认", db.purchases.filter((p) => p.status === "在途").length, "purchases")}
+          ${renderTodo("采购到货确认", (source.purchases || []).filter((p) => p.status === "在途").length, "purchases")}
           ${renderTodo("库存盘点/补货", stats.inventoryRisk, "inventory")}
-          ${renderTodo("交付培训安排", db.deliveries.filter((d) => d.training === "需要" && !["已验收", "已签收"].includes(d.status)).length, "deliveries")}
-          ${renderTodo("售后技术判断", db.aftersales.filter((a) => ["待技术判断", "处理中"].includes(a.status)).length, "aftersales")}
-          ${renderTodo("业务变化同步", db.notices.filter((n) => !["已完成", "暂停"].includes(n.status)).length, "notices")}
+          ${renderTodo("交付培训安排", (source.deliveries || []).filter((d) => d.training === "需要" && !["已验收", "已签收"].includes(d.status)).length, "deliveries")}
+          ${renderTodo("售后技术判断", (source.aftersales || []).filter((a) => ["待技术判断", "处理中"].includes(a.status)).length, "aftersales")}
+          ${renderTodo("业务变化同步", (source.notices || []).filter((n) => !["已完成", "暂停"].includes(n.status)).length, "notices")}
         </div>
       </div>
       <div class="panel">
@@ -1742,7 +1753,7 @@ function renderTodo(label, count, route) {
   </div>`;
 }
 
-function projectRows() {
+function projectRows(source = dashboardData()) {
   const projectActivity = new Map();
   const addActivity = (name, record, moduleId) => {
     const project = String(name || "").trim();
@@ -1750,10 +1761,10 @@ function projectRows() {
     const latest = recordLatestTime(record, moduleId);
     projectActivity.set(project, Math.max(projectActivity.get(project) || 0, latest));
   };
-  db.leads.forEach((record) => addActivity(record.customer, record, "leads"));
-  db.purchases.forEach((record) => addActivity(record.project, record, "purchases"));
-  db.deliveries.forEach((record) => addActivity(record.project, record, "deliveries"));
-  db.aftersales.forEach((record) => addActivity(record.customer, record, "aftersales"));
+  (source.leads || []).forEach((record) => addActivity(record.customer, record, "leads"));
+  (source.purchases || []).forEach((record) => addActivity(record.project, record, "purchases"));
+  (source.deliveries || []).forEach((record) => addActivity(record.project, record, "deliveries"));
+  (source.aftersales || []).forEach((record) => addActivity(record.customer, record, "aftersales"));
 
   const latestRecord = (records, moduleId) => records.slice().sort((left, right) =>
     recordLatestTime(right, moduleId) - recordLatestTime(left, moduleId)
@@ -1763,10 +1774,10 @@ function projectRows() {
     .sort(([, leftTime], [, rightTime]) => rightTime - leftTime)
     .slice(0, 10)
     .map(([name]) => {
-    const lead = latestRecord(db.leads.filter((x) => x.customer === name), "leads");
-    const purchase = latestRecord(db.purchases.filter((x) => x.project === name && x.status !== "已取消"), "purchases");
-    const delivery = latestRecord(db.deliveries.filter((x) => x.project === name && x.status !== "已取消"), "deliveries");
-    const afters = db.aftersales.filter((x) => x.customer === name);
+    const lead = latestRecord((source.leads || []).filter((x) => x.customer === name), "leads");
+    const purchase = latestRecord((source.purchases || []).filter((x) => x.project === name && x.status !== "已取消"), "purchases");
+    const delivery = latestRecord((source.deliveries || []).filter((x) => x.project === name && x.status !== "已取消"), "deliveries");
+    const afters = (source.aftersales || []).filter((x) => x.customer === name);
     const afterRisk = afters.find((x) => !isArchivedRecord("aftersales", x));
     return {
       project: name,
