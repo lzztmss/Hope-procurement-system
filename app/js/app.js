@@ -866,8 +866,8 @@ async function saveData() {
   }
 }
 
-async function adjustInventoryOnServer(adjustments, sourceId, sourceModule) {
-  const { response, payload } = await adjustInventoryRequest(adjustments, sourceId, sourceModule);
+async function adjustInventoryOnServer(adjustments, sourceId, sourceModule, workflowAction) {
+  const { response, payload } = await adjustInventoryRequest(adjustments, sourceId, sourceModule, workflowAction);
   if (!response.ok) throw new Error(payload.message || payload.error || "库存服务处理失败");
   return { results: payload.results || [], revision: Number(payload.revision) };
 }
@@ -3902,11 +3902,14 @@ function getAfterSalesReturnRecord(id) {
 function openAfterSalesInventoryDialog(id, action) {
   const record = getAfterSalesReturnRecord(id);
   if (!record) return toast("售后工单不存在");
-  if (!db.inventory.length) return toast("当前没有可选择的库存产品，请先建立库存台账。");
+  // 无库存模块查看权的技术人员只持有脱敏的 formInventory，仍可在获授权的
+  // 售后入库流程中选择产品规格；库存数量不会显示在此弹窗。
+  const inventoryChoices = db.inventory?.length ? db.inventory : (db.formInventory || []);
+  if (!inventoryChoices.length) return toast("当前没有可选择的库存产品，请先建立库存台账。");
   const actionName = action === "replacement" ? "生成换货出库单" : (action === "repair-return" ? "维修完成入库" : "质检合格入库");
-  const preferred = db.inventory.filter((item) => item.name === record.product && (!record.model || item.model === record.model));
-  const options = [...preferred, ...db.inventory.filter((item) => !preferred.some((preferredItem) => preferredItem.id === item.id))]
-    .map((item) => `<option value="${item.id}" ${item.id === record.inventoryId ? "selected" : ""}>${escapeHtml(inventoryLabel(item))}</option>`).join("");
+  const preferred = inventoryChoices.filter((item) => item.name === record.product && (!record.model || item.model === record.model));
+  const options = [...preferred, ...inventoryChoices.filter((item) => !preferred.some((preferredItem) => preferredItem.id === item.id))]
+    .map((item) => `<option value="${item.id}" ${item.id === record.inventoryId ? "selected" : ""}>${escapeHtml(db.inventory?.length ? inventoryLabel(item) : `${item.name}${item.model ? ` / ${item.model}` : ""}`)}</option>`).join("");
   document.body.insertAdjacentHTML("beforeend", `<div class="modal-backdrop" data-aftersales-inventory-dialog>
     <section class="modal confirm-modal">
       <div class="modal-header"><div><h2 class="panel-title">${actionName}</h2><p class="compact-note">仅本次实际入库或换货时选择产品和数量；售后工单本身无需关联库存。</p></div><button class="icon-btn" type="button" data-close-aftersales-inventory>×</button></div>
@@ -3933,7 +3936,7 @@ function openAfterSalesInventoryDialog(id, action) {
 function validateAfterSalesInventory(record, selection = {}) {
   const quantity = Number((selection.quantity ?? record.quantity) || 0);
   const inventoryId = selection.inventoryId || record.inventoryId;
-  const item = db.inventory.find((inventory) => inventory.id === inventoryId);
+  const item = (db.inventory?.length ? db.inventory : (db.formInventory || [])).find((inventory) => inventory.id === inventoryId);
   if (!item || quantity <= 0) return { ok: false, message: "请选择实际处理的产品/规格，并填写大于 0 的数量。" };
   return { ok: true, item, quantity };
 }
@@ -3981,7 +3984,8 @@ async function returnAfterSalesToStock(id, selection = {}) {
   if (record.returnStockApplied) return toast("该售后单已完成退库，不能重复增加库存");
   let results;
   try {
-    const payload = await adjustInventoryOnServer([{ inventoryId: validation.item.id, delta: validation.quantity, action: "入库", remark: `售后退库 ${record.code}` }], record.id, "aftersales");
+    const workflowAction = record.status === "维修中" ? "aftersales_repair" : "aftersales_quality_return";
+    const payload = await adjustInventoryOnServer([{ inventoryId: validation.item.id, delta: validation.quantity, action: "入库", remark: `售后退库 ${record.code}` }], record.id, "aftersales", workflowAction);
     results = payload.results;
     if (Number.isFinite(payload.revision)) db.meta = { ...(db.meta || {}), revision: payload.revision };
   } catch (error) {

@@ -28,8 +28,8 @@ export function saveState(state) {
   return request("/api/db", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state) });
 }
 
-export function adjustInventory(adjustments, sourceId, sourceModule) {
-  return request("/api/inventory/adjustments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adjustments, sourceId, sourceModule }) });
+export function adjustInventory(adjustments, sourceId, sourceModule, workflowAction) {
+  return request("/api/inventory/adjustments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adjustments, sourceId, sourceModule, workflowAction }) });
 }
 
 export function ensureInventory(item) {

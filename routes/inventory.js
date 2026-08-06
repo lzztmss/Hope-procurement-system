@@ -16,8 +16,14 @@ function createInventoryRoute({
   const permittedRoles = new Set(["admin", "warehouse", "purchase", "aftersales"]);
   const ensureRoles = new Set(["admin", "warehouse", "purchase"]);
 
-  function canAdjust(user, res) {
+  async function canAdjust(user, res, payload = {}) {
     if (permittedRoles.has(user.role)) return true;
+    // 技术人员只能在其已获授权的售后质检/维修完成流程中做“入库”；不能借
+    // 通用库存接口任意增减库存。
+    const aftersalesActions = new Set(["aftersales_quality_return", "aftersales_repair"]);
+    if (user.role === "technician" && payload.sourceModule === "aftersales"
+      && payload.action === "入库" && aftersalesActions.has(payload.workflowAction)
+      && await canWorkflow(user, payload.workflowAction)) return true;
     sendJson(res, 403, { ok: false, error: "FORBIDDEN", message: "当前角色不能执行库存变动" });
     return false;
   }
@@ -36,8 +42,8 @@ function createInventoryRoute({
     const adjustment = req.url.match(/^\/api\/inventory\/([^/]+)\/adjust$/);
     if (req.method === "POST" && adjustment) {
       const user = await requireUser(req, res);
-      if (!user || !canAdjust(user, res)) return true;
       const payload = JSON.parse(await readBody(req, maxBodyBytes) || "{}");
+      if (!user || !await canAdjust(user, res, payload)) return true;
       const result = await adjustInventory({
         inventoryId: decodeURIComponent(adjustment[1]),
         delta: payload.delta,
@@ -52,8 +58,10 @@ function createInventoryRoute({
     }
     if (req.method === "POST" && req.url === "/api/inventory/adjustments") {
       const user = await requireUser(req, res);
-      if (!user || !canAdjust(user, res)) return true;
       const payload = JSON.parse(await readBody(req, maxBodyBytes) || "{}");
+      const permitted = payload.sourceModule === "aftersales" && Array.isArray(payload.adjustments)
+        && payload.adjustments.every((item) => item?.action === "入库");
+      if (!user || !await canAdjust(user, res, permitted ? { ...payload, action: "入库" } : payload)) return true;
       const batch = await adjustInventoryBatch({
         adjustments: payload.adjustments,
         operatorId: user.id,
